@@ -5,6 +5,7 @@
 html { background:var(--paper); color:var(--ink); font-family:"DM Sans",Arial,sans-serif; }
 body { margin:0; }
 button,input { font:inherit; }
+[hidden] { display:none!important; }
 main { min-height:100vh; padding:22px clamp(20px,4vw,64px) 36px; }
 header { border-top:3px solid var(--ink); padding-top:14px; }
 .kicker { margin:0; font-size:11px; letter-spacing:.12em; text-transform:uppercase; }
@@ -15,11 +16,15 @@ h1 em { color:var(--red); font-weight:400; }
 .instrument { display:grid; grid-template-columns:minmax(380px,1.35fr) minmax(330px,.65fr); min-height:54vh; border-top:1px solid var(--ink); border-bottom:1px solid var(--ink); }
 .visual { position:relative; display:grid; place-items:center; min-height:520px; overflow:hidden; border-right:1px solid var(--line); }
 .halo { position:absolute; border:1px solid var(--line); border-radius:50%; aspect-ratio:1; }
-.halo-one { width:min(46vw,630px); }
 .halo-two { width:min(31vw,420px); border-color:var(--red); }
-.recording .halo-one { animation:breathe 1.4s ease-in-out infinite; }
 .recording .halo-two { animation:breathe 1.4s .25s ease-in-out infinite reverse; }
 .processing .halo { animation:turn 2.6s linear infinite; border-top-color:var(--red); }
+.timer-ring { position:absolute; z-index:1; width:min(46vw,630px); aspect-ratio:1; overflow:visible; transform:rotate(-90deg); pointer-events:none; }
+.timer-ring circle { fill:none; vector-effect:non-scaling-stroke; }
+.timer-track { stroke:var(--line); stroke-width:1; }
+.timer-progress { stroke:var(--red); stroke-width:3; stroke-linecap:round; transition:stroke-dashoffset .1s linear; }
+.processing .timer-progress { animation:timer-pulse .8s ease-in-out infinite alternate; }
+.timer-caption { position:absolute; z-index:4; top:calc(50% + 76px); color:var(--red); font-size:11px; font-weight:500; letter-spacing:.13em; text-transform:uppercase; }
 .visual p { z-index:2; margin:0; font-family:"Instrument Serif",Georgia,serif; font-size:clamp(54px,7vw,110px); font-style:italic; letter-spacing:-.05em; }
 #waveform { position:absolute; z-index:3; width:90%; height:130px; }
 .panel { display:flex; flex-direction:column; padding:24px 0 24px clamp(24px,4vw,64px); }
@@ -32,10 +37,14 @@ h1 em { color:var(--red); font-weight:400; }
 .number { padding-top:4px; color:var(--red); font-size:11px; }
 .step h2 { margin:0; font-family:"Instrument Serif",Georgia,serif; font-size:25px; font-weight:400; }
 .step p { margin:5px 0 0; color:var(--muted); font-size:13px; line-height:1.45; }
+.prompt-sentence { margin:12px 0 0; padding-left:12px; border-left:2px solid var(--red); color:var(--ink); font-family:"Instrument Serif",Georgia,serif; font-size:18px; line-height:1.2; }
 .consent { display:grid; grid-template-columns:auto 1fr; gap:10px; margin:22px 0; color:var(--muted); font-size:12px; line-height:1.4; cursor:pointer; }
 .consent input { width:17px; height:17px; margin:0; accent-color:var(--red); }
 .reference-choice { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,.8fr); align-items:center; gap:14px; margin:0 0 14px; color:var(--muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
 .reference-choice small { display:block; margin-top:5px; font-size:10px; line-height:1.35; letter-spacing:0; text-transform:none; }
+.reference-controls { display:grid; gap:8px; min-width:0; }
+.reference-select { width:100%; min-height:54px; padding:0 42px 0 18px; border:1px solid var(--ink); border-radius:999px; background:transparent; color:var(--ink); font:inherit; font-size:11px; letter-spacing:.04em; cursor:pointer; }
+.reference-select:disabled { opacity:.35; cursor:not-allowed; }
 .reference-picker { min-width:0; }
 .reference-picker span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .strength-control { display:grid; grid-template-columns:1fr auto; align-items:center; gap:7px 14px; margin:0 0 18px; color:var(--muted); }
@@ -46,6 +55,7 @@ h1 em { color:var(--red); font-weight:400; }
 button { border:0; cursor:pointer; }
 .primary,.secondary { min-height:54px; padding:15px 21px; border-radius:999px; text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
 .primary { background:var(--ink); color:var(--paper); }
+#recordButton { touch-action:none; user-select:none; }
 .primary:hover:not(:disabled) { background:var(--red); }
 .primary:disabled { opacity:.25; cursor:not-allowed; }
 .secondary { border:1px solid var(--ink); background:transparent; color:var(--ink); }
@@ -61,12 +71,13 @@ button { border:0; cursor:pointer; }
 .truth-note p { margin:0; max-width:680px; }
 @keyframes breathe { 50% { transform:scale(1.08); } }
 @keyframes turn { to { transform:rotate(360deg); } }
+@keyframes timer-pulse { to { opacity:.3; } }
 @media (max-width:800px) {
   .masthead { display:grid; }
   .intro { justify-self:end; }
   .instrument { grid-template-columns:1fr; }
   .visual { min-height:420px; border-right:0; border-bottom:1px solid var(--line); }
-  .halo-one { width:90vw; }
+  .timer-ring { width:90vw; }
   .halo-two { width:64vw; }
   .panel { padding:22px 0; }
   .truth-note { grid-template-columns:1fr; }

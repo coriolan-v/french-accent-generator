@@ -101,8 +101,8 @@ class Handler(BaseHTTPRequestHandler):
             input_path.write_bytes(base64.b64decode(payload["audioBase64"], validate=True))
             style_path.write_bytes(base64.b64decode(payload["referenceAudioBase64"], validate=True))
             duration = librosa.get_duration(path=input_path)
-            if duration < 1.0 or duration > 13.0:
-                raise ValueError("Please record one sentence between 1 and 12 seconds.")
+            if duration < 1.0 or duration > 16.0:
+                raise ValueError("Please record one sentence between 1 and 15 seconds.")
             style_duration = librosa.get_duration(path=style_path)
             if style_duration < 3.0 or style_duration > 15.5:
                 raise ValueError("Please use a French-accent reference between 3 and 15 seconds.")

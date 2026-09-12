@@ -4,26 +4,30 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#f2ede2" />
-    <title>Après Vous — French Accent Generator</title>
+    <title>French-O-Matic</title>
     <meta name="description" content="A private, consent-first voice artwork prototype." />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main>
       <header>
-        <p class="kicker">Voice artwork / local prototype 01</p>
+        <p class="kicker">French-O-Matic / local voice artwork</p>
         <div class="masthead">
-          <h1>Après<br /><em>Vous</em></h1>
+          <h1>French-<br /><em>O-Matic</em></h1>
           <p class="intro">One sentence enters.<br />Your own voice returns.<br />Nothing else is spoken.</p>
         </div>
       </header>
 
       <section class="instrument" aria-labelledby="instrument-title">
         <div class="visual" aria-hidden="true">
-          <div class="halo halo-one"></div>
+          <svg id="timerRing" class="timer-ring" viewBox="0 0 100 100">
+            <circle class="timer-track" cx="50" cy="50" r="47"></circle>
+            <circle id="timerProgress" class="timer-progress" cx="50" cy="50" r="47"></circle>
+          </svg>
           <div class="halo halo-two"></div>
           <canvas id="waveform"></canvas>
           <p id="visualWord">bonjour</p>
+          <span id="timerCaption" class="timer-caption">15 sec max</span>
         </div>
 
         <div class="panel">
@@ -36,7 +40,8 @@
             <span class="number">01</span>
             <div>
               <h2 id="instrument-title">Give one sentence</h2>
-              <p>Speak naturally. The microphone stops automatically after twelve seconds.</p>
+              <p>Hold R while you speak. Release it to finish. Recording stops automatically after fifteen seconds.</p>
+              <blockquote class="prompt-sentence">“Three very angry squirrels threw their horrible red umbrellas through the window because the weather was absolutely ridiculous.”</blockquote>
             </div>
           </div>
           <div class="step" data-step="2">
@@ -54,20 +59,26 @@
             </div>
           </div>
 
-          <label class="consent">
-            <input id="consent" type="checkbox" />
-            <span>I own or have permission to use both the participant and reference recordings for this one-time transformation.</span>
-          </label>
+          <input id="consent" type="checkbox" checked hidden />
 
           <div class="reference-choice">
             <div>
               <span>Your French-accent reference</span>
-              <small>Upload 3–15 seconds of yourself speaking English with the accent you want copied.</small>
+              <small>The first reference is ready automatically. Choose another style here if you prefer.</small>
             </div>
-            <label class="file-picker reference-picker">
-              <span id="referenceLabel">Upload reference</span>
-              <input id="referenceInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.webm,.flac" disabled />
-            </label>
+            <div class="reference-controls">
+              <select id="referenceSelect" class="reference-select" aria-label="French-accent reference">
+                <option value="/assets/1-Worse-French-accent.m4a">1 — Worse French accent</option>
+                <option value="/assets/2-worste-ref-2.m4a">2 — Worse French accent</option>
+                <option value="/assets/3-worse-ref-3.m4a">3 — Worse French accent</option>
+                <option value="/assets/4-worse-reference-15s.m4a">4 — Worse French accent · 15s</option>
+                <option value="custom">Upload my own…</option>
+              </select>
+              <label id="customReferencePicker" class="file-picker reference-picker" hidden>
+                <span id="referenceLabel">Choose reference</span>
+                <input id="referenceInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.webm,.flac" disabled />
+              </label>
+            </div>
           </div>
 
           <label class="strength-control" for="strengthInput">
@@ -80,7 +91,7 @@
           </label>
 
           <div id="inputOptions" class="input-options">
-            <button id="recordButton" class="primary" disabled>Begin recording</button>
+            <button id="recordButton" class="primary" disabled>Hold R to record</button>
             <label class="file-picker">
               <span>Upload recording</span>
               <input id="uploadInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.webm,.flac" disabled />
@@ -92,7 +103,7 @@
             <button id="transformButton" class="primary">Apply French accent</button>
             <button id="eraseButton" class="text-button">Erase</button>
           </div>
-          <p id="message" class="message" role="status">Your microphone stays off until you choose to begin.</p>
+          <p id="message" class="message" role="status">Press R to record.</p>
         </div>
       </section>
 

@@ -3,6 +3,8 @@ const instrument = $(".instrument");
 const recordButton = $("#recordButton");
 const uploadInput = $("#uploadInput");
 const inputOptions = $("#inputOptions");
+const referenceSelect = $("#referenceSelect");
+const customReferencePicker = $("#customReferencePicker");
 const referenceInput = $("#referenceInput");
 const referenceLabel = $("#referenceLabel");
 const strengthInput = $("#strengthInput");
@@ -18,6 +20,11 @@ const clock = $("#clock");
 const visualWord = $("#visualWord");
 const canvas = $("#waveform");
 const engineState = $("#engineState");
+const timerProgress = $("#timerProgress");
+const timerCaption = $("#timerCaption");
+
+const MAX_RECORDING_SECONDS = 15;
+const TIMER_CIRCUMFERENCE = 2 * Math.PI * 47;
 
 let recorder;
 let stream;
@@ -26,24 +33,29 @@ let recordingUrl;
 let convertedUrl;
 let referenceFile;
 let timer;
+let recordingTimeout;
 let startedAt;
 let audioContext;
 let analyser;
 let frame;
 let playing;
 let engineReady = false;
+let processing = false;
+let startingRecording = false;
+let recordControlHeld = false;
 
+timerProgress.style.strokeDasharray = String(TIMER_CIRCUMFERENCE);
+timerProgress.style.strokeDashoffset = "0";
 checkEngine();
+loadSelectedReference();
 setInterval(checkEngine, 5000);
 
-consent.addEventListener("change", () => {
-  recordButton.disabled = !consent.checked;
-  uploadInput.disabled = !consent.checked;
-  referenceInput.disabled = !consent.checked;
-  updateTransformButton();
-});
-recordButton.addEventListener("click", () => recorder?.state === "recording" ? stopRecording() : startRecording());
+recordButton.addEventListener("pointerdown", handleRecordPointerDown);
+recordButton.addEventListener("pointerup", handleRecordPointerUp);
+recordButton.addEventListener("pointercancel", handleRecordPointerUp);
+recordButton.addEventListener("lostpointercapture", handleRecordPointerUp);
 uploadInput.addEventListener("change", loadUpload);
+referenceSelect.addEventListener("change", loadSelectedReference);
 referenceInput.addEventListener("change", loadReference);
 strengthInput.addEventListener("input", () => {
   strengthValue.value = strengthInput.value;
@@ -52,9 +64,60 @@ originalButton.addEventListener("click", playOriginal);
 convertedButton.addEventListener("click", playConverted);
 transformButton.addEventListener("click", transformAccent);
 eraseButton.addEventListener("click", erase);
+document.addEventListener("keydown", handleRecordKeyDown);
+document.addEventListener("keyup", handleRecordKeyUp);
+
+function handleRecordKeyDown(event) {
+  if (event.code !== "KeyR" || event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+  event.preventDefault();
+  if (processing) {
+    message.textContent = "French-O-Matic is still processing the previous sentence.";
+    return;
+  }
+  recordControlHeld = true;
+  startRecording();
+}
+
+function handleRecordKeyUp(event) {
+  if (event.code !== "KeyR") return;
+  event.preventDefault();
+  recordControlHeld = false;
+  stopRecording();
+}
+
+function handleRecordPointerDown(event) {
+  if (recordButton.disabled) return;
+  event.preventDefault();
+  recordButton.setPointerCapture?.(event.pointerId);
+  recordControlHeld = true;
+  startRecording();
+}
+
+function handleRecordPointerUp(event) {
+  if (!recordControlHeld) return;
+  event.preventDefault();
+  recordControlHeld = false;
+  stopRecording();
+}
 
 async function startRecording() {
+  if (processing || startingRecording || recorder?.state === "recording") return;
+  if (!consent.checked) {
+    message.textContent = "Recording is not enabled.";
+    return;
+  }
+  if (!referenceFile) {
+    message.textContent = "Wait for a reference to load, or choose another reference.";
+    return;
+  }
+  if (!engineReady) {
+    message.textContent = "The Vevo engine is offline. Start it before recording.";
+    return;
+  }
+  startingRecording = true;
   try {
+    stopPlayback();
+    clearCapturedAudio();
     stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
     chunks = [];
     recorder = new MediaRecorder(stream);
@@ -66,12 +129,20 @@ async function startRecording() {
     setStep(1);
     instrument.className = "instrument recording";
     visualWord.textContent = "parlez";
-    recordButton.textContent = "Finish sentence";
-    message.textContent = "Listening. Recording stops automatically at twelve seconds.";
+    inputOptions.hidden = false;
+    capturedActions.hidden = true;
+    recordButton.textContent = "Recording — release R";
+    message.textContent = "Listening. Keep holding R while you speak; release it to finish.";
+    updateTimerDisplay(0, true);
     startWaveform();
-    setTimeout(() => recorder?.state === "recording" && stopRecording(), 12_000);
+    recordingTimeout = setTimeout(() => recorder?.state === "recording" && stopRecording(), MAX_RECORDING_SECONDS * 1000);
+    updateControls();
+    if (!recordControlHeld) stopRecording();
   } catch (error) {
     message.textContent = error.name === "NotAllowedError" ? "Microphone permission was declined." : error.message;
+  } finally {
+    startingRecording = false;
+    updateControls();
   }
 }
 
@@ -79,12 +150,26 @@ function stopRecording() {
   if (recorder?.state === "recording") recorder.stop();
 }
 
-function captureComplete() {
+async function captureComplete() {
   clearInterval(timer);
+  clearTimeout(recordingTimeout);
   stopWaveform();
   stream?.getTracks().forEach((track) => track.stop());
+  const duration = Math.min(MAX_RECORDING_SECONDS, (Date.now() - startedAt) / 1000);
+  clock.textContent = "00:" + String(Math.floor(duration)).padStart(2,"0");
+  updateTimerDisplay(duration, false);
+  recordButton.textContent = "Hold R to record";
+  if (duration < 1) {
+    instrument.className = "instrument";
+    visualWord.textContent = "encore";
+    timerCaption.textContent = "hold for 1 sec";
+    message.textContent = "Hold R for at least one second while speaking.";
+    updateControls();
+    return;
+  }
   const blob = new Blob(chunks, { type:recorder.mimeType || "audio/webm" });
   acceptSource(blob, "Sentence captured");
+  if (engineReady && referenceFile && consent.checked) await transformAccent();
 }
 
 async function loadUpload(event) {
@@ -105,7 +190,7 @@ async function loadUpload(event) {
     context = new AudioContext();
     const decoded = await context.decodeAudioData(await file.arrayBuffer());
     const duration = decoded.duration;
-    if (duration < 1 || duration > 12.5) throw new Error("Choose a recording between 1 and 12 seconds.");
+    if (duration < 1 || duration > 15.5) throw new Error("Choose a recording between 1 and 15 seconds.");
     clock.textContent = `00:${String(Math.round(duration)).padStart(2,"0")}`;
     acceptSource(file, `${file.name} loaded`);
   } catch (error) {
@@ -113,6 +198,37 @@ async function loadUpload(event) {
     message.textContent = error.name === "EncodingError" ? "This browser could not decode that audio file." : error.message;
   } finally {
     await context?.close();
+  }
+}
+
+async function loadSelectedReference() {
+  const selected = referenceSelect.value;
+  referenceInput.value = "";
+  referenceFile = undefined;
+  customReferencePicker.hidden = selected !== "custom";
+  referenceLabel.textContent = "Choose reference";
+  updateControls();
+
+  if (selected === "custom") {
+    message.textContent = consent.checked
+      ? "Choose a 3–15 second French-accent reference recording."
+      : "Reference uploads are not enabled.";
+    return;
+  }
+
+  message.textContent = "Loading the selected French-accent reference…";
+  try {
+    const response = await fetch(selected, { cache:"no-store" });
+    if (!response.ok) throw new Error("The selected reference could not be loaded.");
+    const loadedReference = await response.blob();
+    if (referenceSelect.value !== selected) return;
+    referenceFile = loadedReference;
+    const label = referenceSelect.options[referenceSelect.selectedIndex].textContent;
+    message.textContent = `${label} is ready. Press R to record.`;
+  } catch (error) {
+    message.textContent = error.message;
+  } finally {
+    updateControls();
   }
 }
 
@@ -136,14 +252,14 @@ async function loadReference(event) {
     if (decoded.duration < 3 || decoded.duration > 15.5) throw new Error("Choose a French-accent reference between 3 and 15 seconds.");
     referenceFile = file;
     referenceLabel.textContent = file.name;
-    message.textContent = `${file.name} is your temporary French-accent reference.`;
-    updateTransformButton();
+    message.textContent = `${file.name} is ready. Press R to record.`;
+    updateControls();
   } catch (error) {
     referenceInput.value = "";
     referenceFile = undefined;
     referenceLabel.textContent = "Upload reference";
     message.textContent = error.name === "EncodingError" ? "This browser could not decode that reference file." : error.message;
-    updateTransformButton();
+    updateControls();
   } finally {
     await context?.close();
   }
@@ -154,12 +270,13 @@ function acceptSource(blob, description) {
   recordingUrl = URL.createObjectURL(blob);
   instrument.className = "instrument";
   visualWord.textContent = "voilà";
+  recordButton.textContent = "Hold R to record";
   inputOptions.hidden = true;
   capturedActions.hidden = false;
   if (!engineReady) message.textContent = `${description}. Start the Vevo engine, then apply the accent.`;
   else if (!referenceFile) message.textContent = `${description}. Now upload your French-accent reference.`;
-  else message.textContent = `${description}. Compare it with the local Vevo conversion.`;
-  updateTransformButton();
+  else message.textContent = `${description}. Processing the French accent automatically…`;
+  updateControls();
 }
 
 function playOriginal() {
@@ -181,15 +298,19 @@ function playConverted() {
 }
 
 async function transformAccent() {
+  if (processing) return;
+  processing = true;
   stopPlayback();
   setStep(2);
   instrument.className = "instrument processing";
   visualWord.textContent = "un instant";
+  timerCaption.textContent = "processing";
   capturedActions.hidden = true;
   message.textContent = "Separating the sentence, French accent style, and your vocal timbre locally…";
+  updateControls();
   try {
     if (!referenceFile) throw new Error("Upload your French-accent reference first.");
-    const [wav, referenceWav] = await Promise.all([audioToWav(recordingUrl), audioToWav(referenceFile)]);
+    const [wav, referenceWav] = await Promise.all([audioToWav(recordingUrl), audioToWav(referenceFile, 15)]);
     const response = await fetch("/api/transform", {
       method:"POST",
       headers:{ "content-type":"application/json" },
@@ -207,18 +328,28 @@ async function transformAccent() {
     convertedUrl = URL.createObjectURL(output);
     convertedButton.hidden = false;
     playing = new Audio(convertedUrl);
-    await playing.play();
+    let playedAutomatically = true;
+    try {
+      await playing.play();
+    } catch {
+      playedAutomatically = false;
+    }
     instrument.className = "instrument";
     setStep(3);
     visualWord.textContent = "écoutez";
+    timerCaption.textContent = "ready · hold R again";
     const identityNote = result.identityProtection ? " with participant identity protection" : "";
-    message.textContent = `Your ${Math.round(result.caricatureStrength * 100)}% caricature completed locally in ${result.processingSeconds.toFixed(1)} seconds${identityNote}. Compare it critically with the original.`;
+    const playbackNote = playedAutomatically ? "The converted recording is playing." : "Select Converted to play it.";
+    message.textContent = `Your ${Math.round(result.caricatureStrength * 100)}% caricature completed locally in ${result.processingSeconds.toFixed(1)} seconds${identityNote}. ${playbackNote} Press R for the next person.`;
   } catch (error) {
     instrument.className = "instrument";
     visualWord.textContent = "pas encore";
+    timerCaption.textContent = "try again";
     message.textContent = error.message;
   } finally {
+    processing = false;
     capturedActions.hidden = false;
+    updateControls();
   }
 }
 
@@ -230,19 +361,25 @@ async function checkEngine() {
   } catch { engineReady = false; }
   engineState.className = `engine-state ${engineReady ? "ready" : "offline"}`;
   engineState.innerHTML = `<i></i>${engineReady ? "Vevo ready / local" : "Vevo engine offline"}`;
-  updateTransformButton();
+  updateControls();
 }
 
-function updateTransformButton() {
-  transformButton.disabled = !engineReady || !recordingUrl || !referenceFile || !consent.checked;
+function updateControls() {
+  const isRecording = recorder?.state === "recording";
+  recordButton.disabled = isRecording ? false : processing || startingRecording || !engineReady || !referenceFile || !consent.checked;
+  uploadInput.disabled = processing || startingRecording || !consent.checked;
+  referenceSelect.disabled = processing || startingRecording || isRecording;
+  referenceInput.disabled = processing || startingRecording || isRecording || !consent.checked || referenceSelect.value !== "custom";
+  transformButton.disabled = processing || !engineReady || !recordingUrl || !referenceFile || !consent.checked;
 }
 
-async function audioToWav(source) {
+async function audioToWav(source, maxSeconds = Infinity) {
   const encoded = typeof source === "string" ? await fetch(source).then((response) => response.arrayBuffer()) : await source.arrayBuffer();
   const context = new AudioContext();
   const decoded = await context.decodeAudioData(encoded);
   const mono = decoded.numberOfChannels === 1 ? decoded.getChannelData(0) : mixToMono(decoded);
-  const wav = encodeWav(mono,decoded.sampleRate);
+  const maximumSamples = Math.min(mono.length, Math.floor(maxSeconds * decoded.sampleRate));
+  const wav = encodeWav(mono.subarray(0, maximumSamples),decoded.sampleRate);
   await context.close();
   return wav;
 }
@@ -280,33 +417,35 @@ function base64ToBlob(value,mimeType) {
   return new Blob([bytes],{ type:mimeType });
 }
 
-function erase() {
-  stopPlayback();
-  stream?.getTracks().forEach((track) => track.stop());
-  chunks = [];
+function clearCapturedAudio() {
   if (recordingUrl) URL.revokeObjectURL(recordingUrl);
   if (convertedUrl) URL.revokeObjectURL(convertedUrl);
   recordingUrl = undefined;
   convertedUrl = undefined;
+  convertedButton.hidden = true;
+  capturedActions.hidden = true;
   inputOptions.hidden = false;
-  recordButton.textContent = "Begin recording";
+}
+
+function erase() {
+  stopPlayback();
+  stream?.getTracks().forEach((track) => track.stop());
+  chunks = [];
+  clearTimeout(recordingTimeout);
+  clearCapturedAudio();
+  recordButton.textContent = "Hold R to record";
   uploadInput.value = "";
-  referenceInput.value = "";
-  referenceFile = undefined;
-  referenceLabel.textContent = "Upload reference";
+  referenceSelect.selectedIndex = 0;
   strengthInput.value = "80";
   strengthValue.value = "80";
-  capturedActions.hidden = true;
-  convertedButton.hidden = true;
-  consent.checked = false;
-  recordButton.disabled = true;
-  uploadInput.disabled = true;
-  referenceInput.disabled = true;
+  consent.checked = true;
   clock.textContent = "00:00";
   instrument.className = "instrument";
   visualWord.textContent = "bonjour";
+  resetTimerDisplay();
   setStep(1);
-  message.textContent = "Recording erased from this browser.";
+  message.textContent = "Recording erased. Reloading the default reference…";
+  loadSelectedReference();
 }
 
 function stopPlayback() {
@@ -320,8 +459,26 @@ function setStep(number) {
 }
 
 function updateClock() {
-  const seconds = Math.min(12, (Date.now() - startedAt) / 1000);
-  clock.textContent = `00:${String(Math.floor(seconds)).padStart(2,"0")}`;
+  const seconds = Math.min(MAX_RECORDING_SECONDS, (Date.now() - startedAt) / 1000);
+  clock.textContent = "00:" + String(Math.floor(seconds)).padStart(2,"0");
+  updateTimerDisplay(seconds, true);
+}
+
+function updateTimerDisplay(elapsedSeconds, isRecording) {
+  const progress = Math.max(0, Math.min(1, elapsedSeconds / MAX_RECORDING_SECONDS));
+  timerProgress.style.strokeDashoffset = String(TIMER_CIRCUMFERENCE * progress);
+  if (isRecording) {
+    const remaining = Math.max(0, MAX_RECORDING_SECONDS - elapsedSeconds);
+    timerCaption.textContent = remaining.toFixed(1) + " sec";
+  } else {
+    timerCaption.textContent = elapsedSeconds.toFixed(1) + " sec captured";
+  }
+}
+
+function resetTimerDisplay() {
+  clock.textContent = "00:00";
+  timerProgress.style.strokeDashoffset = "0";
+  timerCaption.textContent = MAX_RECORDING_SECONDS + " sec max";
 }
 
 function startWaveform() {

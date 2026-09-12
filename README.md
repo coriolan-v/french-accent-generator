@@ -1,4 +1,4 @@
-# Après Vous — French Accent Generator
+# French-O-Matic
 
 A consent-first standalone prototype for a voice artwork. It records one sentence and uses Amphion Vevo-Style to transfer French-accented English pronunciation while retaining the participant's vocal timbre. Nothing is uploaded.
 
@@ -22,16 +22,11 @@ npm run dev
 
 Open <http://127.0.0.1:4173> in Chrome or Edge.
 
-1. Tick the consent box.
-2. Under **Your French-accent reference**, upload 3–15 seconds of yourself speaking English with the French accent you want transferred.
-3. Select **Begin recording** for the participant, or select **Upload recording** for an existing participant clip.
-4. Record or choose one participant sentence between 1 and 12 seconds. WAV, MP3, M4A, AAC, OGG, WebM, and FLAC are accepted when the browser can decode them.
-5. Select **Original** to confirm the capture.
-6. Confirm the top-right status says **Vevo ready / local**.
-7. Set **Caricature strength**. Start at 80%. Higher values loosen pronunciation preservation; maximum strength is intentionally less faithful and may distort a word.
-8. Select **Apply French accent** and wait for the transformed sentence to play.
-9. Alternate between **Original** and **Converted** for an immediate comparison.
-10. Select **Erase** and confirm the interface resets.
+1. The numbered **1 — Worse French accent** reference loads automatically. Use the dropdown to choose numbered references 2–4 or upload a custom 3–15 second reference.
+2. Confirm the top-right status says **Vevo ready / local** and set **Caricature strength**. Start at 80%.
+3. Hold `R` while speaking and release it to finish. Recording stops automatically after fifteen seconds even if the key remains held.
+4. French-O-Matic processes the sentence and plays the converted audio automatically.
+5. Press `R` again for the next participant, or use **Original**, **Converted**, and **Erase** for manual testing.
 
 ## How the conversion works
 
@@ -49,7 +44,7 @@ The included setup uses Python 3.10, PyTorch 2.8 with CUDA 12.8, and the compute
 
 ## Reference and licensing
 
-The active app does not use a bundled archive voice. The reference is supplied in the browser for each session, sent only to the loopback engine, and deleted from the server's temporary working directory after every conversion. Use only a recording you own or have permission to use.
+The active app offers the four locally supplied, numbered `.m4a` recordings in `assets` as reference presets. A custom reference can also be supplied in the browser. The selected audio is sent only to the loopback engine, and temporary conversion files are deleted after every request. Use recordings only when you own them or have permission to use them.
 
 The published Amphion Vevo checkpoints are CC BY-NC 4.0. The source code is MIT-licensed. Review these terms before commercial use.
 
