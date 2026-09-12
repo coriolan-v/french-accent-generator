@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f2ede2" />
+    <title>Après Vous — French Accent Generator</title>
+    <meta name="description" content="A private, consent-first voice artwork prototype." />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="kicker">Voice artwork / local prototype 01</p>
+        <div class="masthead">
+          <h1>Après<br /><em>Vous</em></h1>
+          <p class="intro">One sentence enters.<br />Your own voice returns.<br />Nothing else is spoken.</p>
+        </div>
+      </header>
+
+      <section class="instrument" aria-labelledby="instrument-title">
+        <div class="visual" aria-hidden="true">
+          <div class="halo halo-one"></div>
+          <div class="halo halo-two"></div>
+          <canvas id="waveform"></canvas>
+          <p id="visualWord">bonjour</p>
+        </div>
+
+        <div class="panel">
+          <div class="status-line">
+            <span id="engineState" class="engine-state offline"><i></i> Checking Vevo</span>
+            <span id="clock">00:00</span>
+          </div>
+
+          <div class="step active" data-step="1">
+            <span class="number">01</span>
+            <div>
+              <h2 id="instrument-title">Give one sentence</h2>
+              <p>Speak naturally. The microphone stops automatically after twelve seconds.</p>
+            </div>
+          </div>
+          <div class="step" data-step="2">
+            <span class="number">02</span>
+            <div>
+              <h2>Shape the sound</h2>
+              <p>Vevo borrows pronunciation and rhythm from your French-accent reference while keeping the participant's vocal timbre.</p>
+            </div>
+          </div>
+          <div class="step" data-step="3">
+            <span class="number">03</span>
+            <div>
+              <h2>Hear yourself elsewhere</h2>
+              <p>The recording is erased from memory when you choose erase or close the page.</p>
+            </div>
+          </div>
+
+          <label class="consent">
+            <input id="consent" type="checkbox" />
+            <span>I own or have permission to use both the participant and reference recordings for this one-time transformation.</span>
+          </label>
+
+          <div class="reference-choice">
+            <div>
+              <span>Your French-accent reference</span>
+              <small>Upload 3–15 seconds of yourself speaking English with the accent you want copied.</small>
+            </div>
+            <label class="file-picker reference-picker">
+              <span id="referenceLabel">Upload reference</span>
+              <input id="referenceInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.webm,.flac" disabled />
+            </label>
+          </div>
+
+          <label class="strength-control" for="strengthInput">
+            <span>
+              <strong>Caricature strength</strong>
+              <small>Higher values rewrite more pronunciation. Identity protection remains active.</small>
+            </span>
+            <span class="strength-readout"><output id="strengthValue" for="strengthInput">80</output>%</span>
+            <input id="strengthInput" type="range" min="0" max="100" value="80" step="1" />
+          </label>
+
+          <div id="inputOptions" class="input-options">
+            <button id="recordButton" class="primary" disabled>Begin recording</button>
+            <label class="file-picker">
+              <span>Upload recording</span>
+              <input id="uploadInput" type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.webm,.flac" disabled />
+            </label>
+          </div>
+          <div id="capturedActions" class="actions" hidden>
+            <button id="originalButton" class="secondary">Original</button>
+            <button id="convertedButton" class="secondary" hidden>Converted</button>
+            <button id="transformButton" class="primary">Apply French accent</button>
+            <button id="eraseButton" class="text-button">Erase</button>
+          </div>
+          <p id="message" class="message" role="status">Your microphone stays off until you choose to begin.</p>
+        </div>
+      </section>
+
+      <section class="truth-note">
+        <p>What you are hearing in this build</p>
+        <p>Vevo first matches the accent reference to the participant's vocal timbre, applies that style to the sentence, then restores the participant's timbre once more. Very high caricature settings may still distort a word. The system cannot deliberately insert new words such as â€œeuhâ€. Processing and temporary files remain on this computer.</p>
+      </section>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

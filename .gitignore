@@ -1,0 +1,16 @@
+.env
+.env.local
+node_modules/
+.next/
+dist/
+*.log
+output*.wav
+input*.wav
+vevo_test_output.wav
+vevo_*_output.wav
+.DS_Store
+.venv/
+.uv-cache/
+vendor/
+models/
+runtime/

@@ -1,0 +1,13 @@
+{
+  "name": "french-accent-generator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "engine": ".venv\\Scripts\\python.exe engine\\vevo_service.py",
+    "start": "node server.mjs",
+    "check": "node --check server.mjs && node --check public/app.js && .venv\\Scripts\\python.exe -B -c \"compile(open('engine/vevo_service.py', encoding='utf-8').read(), 'engine/vevo_service.py', 'exec')\""
+  },
+  "engines": { "node": ">=22" }
+}

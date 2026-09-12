@@ -6,7 +6,7 @@ import os
 from elevenlabs import ElevenLabs
 
 # ============ CONFIG ============
-ELEVEN_API_KEY = "sk_c7165d09cbc276348039b414fa2d1bd1b912c8024db7d2b9"   # <-- put your ElevenLabs key
+ELEVEN_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 INPUT_CLIP = "input.wav"
 OUTPUT_CLIP = "output.wav"
 SAMPLE_RATE = 16000
