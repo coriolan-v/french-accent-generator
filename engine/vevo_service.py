@@ -3,11 +3,13 @@
 import base64
 import json
 import os
+import socket
 import shutil
 import sys
 import tempfile
 import threading
 import time
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -15,6 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 AMPHION_ROOT = PROJECT_ROOT / "vendor" / "Amphion"
 MODEL_CACHE = PROJECT_ROOT / "models" / "Vevo"
 RUNTIME_ROOT = PROJECT_ROOT / "runtime"
+ENGINE_PORT = int(os.environ.get("VEVO_ENGINE_PORT", "4174"))
 
 if not AMPHION_ROOT.exists():
     raise RuntimeError("Amphion is missing. Run scripts/setup-vevo.ps1 first.")
@@ -24,12 +27,30 @@ RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(AMPHION_ROOT))
 os.chdir(AMPHION_ROOT)
 
+# Device Guard prevents Numba from executing its generated cache code and can
+# leave librosa.filters consuming CPU indefinitely during import. Vevo's model
+# inference uses PyTorch/CUDA, so disabling this optional Librosa JIT is safe.
+os.environ.setdefault("NUMBA_DISABLE_JIT", "1")
+
 import librosa
 import torch
 from huggingface_hub import snapshot_download
 from models.vc.vevo.vevo_utils import VevoInferencePipeline, save_audio
 
 INFERENCE_LOCK = threading.Lock()
+MAX_STYLE_SECONDS = 6.0
+
+
+def trim_pcm_wav(path, maximum_seconds):
+    trimmed_path = path.with_name(f"{path.stem}-trimmed.wav")
+    with wave.open(str(path), "rb") as source:
+        parameters = source.getparams()
+        maximum_frames = round(source.getframerate() * maximum_seconds)
+        frames = source.readframes(min(source.getnframes(), maximum_frames))
+    with wave.open(str(trimmed_path), "wb") as target:
+        target.setparams(parameters)
+        target.writeframes(frames)
+    trimmed_path.replace(path)
 
 
 def model_snapshot(pattern):
@@ -51,7 +72,7 @@ def load_pipeline():
     ar_root = model_snapshot("contentstyle_modeling/Vq32ToVq8192/*")
     fmt_root = model_snapshot("acoustic_modeling/Vq8192ToMels/*")
     vocoder_root = model_snapshot("acoustic_modeling/Vocoder/*")
-    return VevoInferencePipeline(
+    pipeline = VevoInferencePipeline(
         content_tokenizer_ckpt_path=str(content_root / "tokenizer" / "vq32" / "hubert_large_l18_c32.pkl"),
         content_style_tokenizer_ckpt_path=str(style_root / "tokenizer" / "vq8192"),
         ar_cfg_path=str(AMPHION_ROOT / "models" / "vc" / "vevo" / "config" / "Vq32ToVq8192.json"),
@@ -62,6 +83,24 @@ def load_pipeline():
         vocoder_ckpt_path=str(vocoder_root / "acoustic_modeling" / "Vocoder"),
         device=device,
     )
+    original_generate = pipeline.ar_model.generate
+
+    def generate_with_duration_limit(*args, **kwargs):
+        requested_minimum = getattr(pipeline, "minimum_output_tokens", 50)
+        requested_maximum = getattr(pipeline, "maximum_output_tokens", 2000)
+        input_ids = kwargs.get("input_ids")
+        prompt_ids = kwargs.get("prompt_output_ids")
+        input_length = (input_ids.shape[1] if input_ids is not None else 0) + (
+            prompt_ids.shape[1] if prompt_ids is not None else 0
+        )
+        available_tokens = max(50, 2000 - input_length - 16)
+        maximum_tokens = min(requested_maximum, available_tokens)
+        kwargs["min_new_tokens"] = min(requested_minimum, maximum_tokens)
+        kwargs["max_length"] = min(2000, input_length + maximum_tokens + 8)
+        return original_generate(*args, **kwargs)
+
+    pipeline.ar_model.generate = generate_with_duration_limit
+    return pipeline
 
 
 PIPELINE = load_pipeline()
@@ -100,23 +139,27 @@ class Handler(BaseHTTPRequestHandler):
             output_path = work_dir / "output.wav"
             input_path.write_bytes(base64.b64decode(payload["audioBase64"], validate=True))
             style_path.write_bytes(base64.b64decode(payload["referenceAudioBase64"], validate=True))
+            original_style_duration = librosa.get_duration(path=style_path)
+            if original_style_duration > MAX_STYLE_SECONDS:
+                trim_pcm_wav(style_path, MAX_STYLE_SECONDS)
             duration = librosa.get_duration(path=input_path)
             if duration < 1.0 or duration > 16.0:
                 raise ValueError("Please record one sentence between 1 and 15 seconds.")
             style_duration = librosa.get_duration(path=style_path)
-            if style_duration < 3.0 or style_duration > 15.5:
-                raise ValueError("Please use a French-accent reference between 3 and 15 seconds.")
+            if style_duration < 3.0 or style_duration > MAX_STYLE_SECONDS + 0.1:
+                raise ValueError("Please use a French-accent reference of at least 3 seconds.")
             strength = float(payload.get("caricatureStrength", 0.80))
             if not 0.0 <= strength <= 1.0:
                 raise ValueError("Caricature strength must be between 0 and 1.")
 
-            # Vevo normally preserves the source content tokens very tightly. At
-            # higher strengths we hide a controlled proportion of those tokens,
-            # which makes the model lean harder on the accent/style reference.
-            # This is deliberately exposed as an artistic rather than a fidelity
-            # control.
-            content_mask_ratio = -1 if strength < 0.08 else 0.03 + (strength * 0.17)
+            # Randomly masking source tokens strengthened the caricature but also
+            # allowed words and whole phrases to disappear. Preserve every source
+            # token. A shorter style prompt leaves room for long source utterances
+            # inside Vevo's fixed autoregressive context.
+            content_mask_ratio = -1
             with INFERENCE_LOCK:
+                PIPELINE.minimum_output_tokens = max(50, round(duration * 40))
+                PIPELINE.maximum_output_tokens = max(60, round(duration * 60))
                 # Raw style references can leak the reference speaker's sex,
                 # pitch range, and vocal colour. Vevo-Timbre preserves the comic
                 # delivery while first dressing that reference in the current
@@ -149,6 +192,7 @@ class Handler(BaseHTTPRequestHandler):
                     flow_matching_steps=20,
                 )
                 save_audio(generated, output_path=str(output_path))
+            output_duration = librosa.get_duration(path=output_path)
             self.send_json(200, {
                 "audioBase64": base64.b64encode(output_path.read_bytes()).decode("ascii"),
                 "mimeType": "audio/wav",
@@ -156,6 +200,10 @@ class Handler(BaseHTTPRequestHandler):
                 "caricatureStrength": strength,
                 "accentPasses": 1,
                 "identityProtection": True,
+                "contentMasking": False,
+                "inputSeconds": duration,
+                "outputSeconds": output_duration,
+                "referenceSeconds": style_duration,
                 "processingSeconds": time.perf_counter() - started,
             })
         except (ValueError, KeyError, json.JSONDecodeError) as error:
@@ -170,7 +218,14 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
+class ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("127.0.0.1", 4174), Handler)
-    print("Vevo engine ready at http://127.0.0.1:4174", flush=True)
+    server = ExclusiveThreadingHTTPServer(("127.0.0.1", ENGINE_PORT), Handler)
+    print(f"Vevo engine ready at http://127.0.0.1:{ENGINE_PORT}", flush=True)
     server.serve_forever()

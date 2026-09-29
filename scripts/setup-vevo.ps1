@@ -18,4 +18,4 @@ if (-not (Test-Path -LiteralPath $amphionRoot)) {
 uv pip install --python $venvPython torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 uv pip install --python $venvPython -r (Join-Path $projectRoot "requirements-local.txt")
 
-& $venvPython -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none')"
+node (Join-Path $PSScriptRoot "run-python.mjs") -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'none')"

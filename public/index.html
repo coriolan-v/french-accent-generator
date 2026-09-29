@@ -81,14 +81,14 @@
             </div>
           </div>
 
-          <label class="strength-control" for="strengthInput">
+          <div class="strength-control fidelity-status">
             <span>
-              <strong>Caricature strength</strong>
-              <small>Higher values rewrite more pronunciation. Identity protection remains active.</small>
+              <strong>Speech preservation</strong>
+              <small>Content masking is disabled. Accent character now comes entirely from the selected reference.</small>
             </span>
-            <span class="strength-readout"><output id="strengthValue" for="strengthInput">80</output>%</span>
-            <input id="strengthInput" type="range" min="0" max="100" value="80" step="1" />
-          </label>
+            <span class="strength-readout">Locked</span>
+            <input id="strengthInput" type="hidden" value="0" />
+          </div>
 
           <div id="inputOptions" class="input-options">
             <button id="recordButton" class="primary" disabled>Hold R to record</button>

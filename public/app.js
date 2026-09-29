@@ -8,7 +8,6 @@ const customReferencePicker = $("#customReferencePicker");
 const referenceInput = $("#referenceInput");
 const referenceLabel = $("#referenceLabel");
 const strengthInput = $("#strengthInput");
-const strengthValue = $("#strengthValue");
 const originalButton = $("#originalButton");
 const convertedButton = $("#convertedButton");
 const transformButton = $("#transformButton");
@@ -57,9 +56,6 @@ recordButton.addEventListener("lostpointercapture", handleRecordPointerUp);
 uploadInput.addEventListener("change", loadUpload);
 referenceSelect.addEventListener("change", loadSelectedReference);
 referenceInput.addEventListener("change", loadReference);
-strengthInput.addEventListener("input", () => {
-  strengthValue.value = strengthInput.value;
-});
 originalButton.addEventListener("click", playOriginal);
 convertedButton.addEventListener("click", playConverted);
 transformButton.addEventListener("click", transformAccent);
@@ -310,7 +306,7 @@ async function transformAccent() {
   updateControls();
   try {
     if (!referenceFile) throw new Error("Upload your French-accent reference first.");
-    const [wav, referenceWav] = await Promise.all([audioToWav(recordingUrl), audioToWav(referenceFile, 15)]);
+    const [wav, referenceWav] = await Promise.all([audioToWav(recordingUrl), audioToWav(referenceFile, 6)]);
     const response = await fetch("/api/transform", {
       method:"POST",
       headers:{ "content-type":"application/json" },
@@ -340,7 +336,7 @@ async function transformAccent() {
     timerCaption.textContent = "ready · hold R again";
     const identityNote = result.identityProtection ? " with participant identity protection" : "";
     const playbackNote = playedAutomatically ? "The converted recording is playing." : "Select Converted to play it.";
-    message.textContent = `Your ${Math.round(result.caricatureStrength * 100)}% caricature completed locally in ${result.processingSeconds.toFixed(1)} seconds${identityNote}. ${playbackNote} Press R for the next person.`;
+    message.textContent = `Speech-preserving conversion completed locally in ${result.processingSeconds.toFixed(1)} seconds${identityNote}. Input ${result.inputSeconds.toFixed(1)}s; output ${result.outputSeconds.toFixed(1)}s. ${playbackNote} Press R for the next person.`;
   } catch (error) {
     instrument.className = "instrument";
     visualWord.textContent = "pas encore";
@@ -436,8 +432,7 @@ function erase() {
   recordButton.textContent = "Hold R to record";
   uploadInput.value = "";
   referenceSelect.selectedIndex = 0;
-  strengthInput.value = "80";
-  strengthValue.value = "80";
+  strengthInput.value = "0";
   consent.checked = true;
   clock.textContent = "00:00";
   instrument.className = "instrument";

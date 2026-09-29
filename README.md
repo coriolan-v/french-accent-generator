@@ -13,6 +13,8 @@ npm run engine
 
 The first start downloads the model checkpoints; later starts reuse them. Wait until the window says `Vevo engine ready at http://127.0.0.1:4174`.
 
+The npm command uses `scripts/run-python.mjs` to start the trusted base Python interpreter with the packages already installed in `.venv`. This avoids Windows Device Guard blocking the unsigned launcher copied into `.venv\Scripts`.
+
 Start the artwork in a second PowerShell window:
 
 ```powershell
@@ -23,7 +25,7 @@ npm run dev
 Open <http://127.0.0.1:4173> in Chrome or Edge.
 
 1. The numbered **1 — Worse French accent** reference loads automatically. Use the dropdown to choose numbered references 2–4 or upload a custom 3–15 second reference.
-2. Confirm the top-right status says **Vevo ready / local** and set **Caricature strength**. Start at 80%.
+2. Confirm the top-right status says **Vevo ready / local**. Speech preservation is locked on; choose a more or less exaggerated reference to change the accent character.
 3. Hold `R` while speaking and release it to finish. Recording stops automatically after fifteen seconds even if the key remains held.
 4. French-O-Matic processes the sentence and plays the converted audio automatically.
 5. Press `R` again for the next participant, or use **Original**, **Converted**, and **Erase** for manual testing.
@@ -38,7 +40,7 @@ The browser turns the participant's captured sentence into a mono WAV and sends 
 
 There is no text box, transcription, or text-to-speech stage. The engine can only transform the submitted waveform. Per-utterance input and output files are created in a random temporary folder and removed in a `finally` block after the response.
 
-The caricature control progressively masks some source content tokens so the model relies more on the style reference. Identity matching is active at every strength. This strengthens style transfer but cannot deterministically replace individual phonemes or insert filler words; high values can trade intelligibility for exaggeration.
+Source-content masking is disabled because it can delete words and make long output collapse. The first six seconds of the selected style reference are used so a full fifteen-second participant recording still fits Vevo's generation context. Lower and upper generation bounds target roughly 80–120% of the input duration. Identity matching remains active, but Vevo still cannot guarantee word-perfect conversion or deliberately insert filler words.
 
 The included setup uses Python 3.10, PyTorch 2.8 with CUDA 12.8, and the computer's RTX 5070. `scripts/setup-vevo.ps1` reproduces the environment.
 
