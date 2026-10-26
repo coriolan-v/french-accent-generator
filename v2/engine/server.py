@@ -1,0 +1,81 @@
+"""Local web server: serves the page and runs the French accent pipeline on the GPU.
+
+Run:  .venv\\Scripts\\python server.py   then open http://localhost:8000
+"""
+import base64
+import io
+import os
+import threading
+import traceback
+import warnings
+
+warnings.filterwarnings('ignore')
+import soundfile as sf  # noqa: E402
+import uvicorn  # noqa: E402
+from fastapi import FastAPI, File, Form, UploadFile  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MAX_SECONDS = 15
+GUIDE_VOICES = ['ff_siwis', 'am_michael', 'bm_george', 'af_heart']
+
+app = FastAPI()
+state = {'pipeline': None, 'error': None}
+gpu_lock = threading.Lock()
+
+
+def load():
+    try:
+        from pipeline import FrenchAccentPipeline
+        state['pipeline'] = FrenchAccentPipeline()
+        print('Models loaded, ready on http://localhost:8000')
+    except Exception as e:
+        traceback.print_exc()
+        state['error'] = str(e)
+
+
+def wav_b64(audio, sr):
+    buf = io.BytesIO()
+    sf.write(buf, audio, sr, format='WAV', subtype='PCM_16')
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+@app.get('/')
+def index():
+    return FileResponse(os.path.join(ROOT, 'index.html'))
+
+
+@app.get('/api/health')
+def health():
+    return {'ready': state['pipeline'] is not None, 'error': state['error'], 'voices': GUIDE_VOICES}
+
+
+@app.post('/api/convert')
+def convert(audio: UploadFile = File(...), strength: int = Form(3), voice: str = Form('ff_siwis'),
+            speed: float = Form(0.9), steps: int = Form(25), text: str = Form('')):
+    p = state['pipeline']
+    if p is None:
+        return JSONResponse({'error': 'Models are still loading, try again in a moment.'}, status_code=503)
+    try:
+        wav, sr = sf.read(io.BytesIO(audio.file.read()), dtype='float32')
+        wav = wav[:sr * MAX_SECONDS]
+        with gpu_lock:
+            r = p.run(wav, sr, strength=max(1, min(3, strength)),
+                      voice=voice if voice in GUIDE_VOICES else 'ff_siwis',
+                      speed=max(0.6, min(1.3, speed)), steps=max(5, min(60, steps)),
+                      text=text.strip() or None)
+    except ValueError as e:
+        return JSONResponse({'error': str(e)}, status_code=422)
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse({'error': f'Processing failed: {e}'}, status_code=500)
+    return {
+        'text': r['text'], 'phonemes': r['phonemes_fr'],
+        'audio': wav_b64(r['audio'], r['sr']), 'guide': wav_b64(r['guide'], r['sr']),
+        'timings': {k: round(v, 2) for k, v in r['timings'].items()},
+    }
+
+
+if __name__ == '__main__':
+    threading.Thread(target=load, daemon=True).start()
+    uvicorn.run(app, host='127.0.0.1', port=8000, log_level='warning')

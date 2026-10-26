@@ -189,6 +189,7 @@ async function loadUpload(event) {
     if (duration < 1 || duration > 15.5) throw new Error("Choose a recording between 1 and 15 seconds.");
     clock.textContent = `00:${String(Math.round(duration)).padStart(2,"0")}`;
     acceptSource(file, `${file.name} loaded`);
+    if (engineReady && referenceFile && consent.checked) await transformAccent();
   } catch (error) {
     uploadInput.value = "";
     message.textContent = error.name === "EncodingError" ? "This browser could not decode that audio file." : error.message;

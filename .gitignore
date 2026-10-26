@@ -1,16 +1,21 @@
-.env
-.env.local
-node_modules/
-.next/
-dist/
-*.log
-output*.wav
-input*.wav
-vevo_test_output.wav
-vevo_*_output.wav
-.DS_Store
+# Python
+__pycache__/
+*.py[cod]
 .venv/
 .uv-cache/
-vendor/
-models/
-runtime/
+
+# OS / editor / secrets
+.DS_Store
+.env
+.env.local
+*.log
+
+# v1: PlatformIO-generated editor files (machine-specific paths)
+v1/.vscode/c_cpp_properties.json
+v1/.vscode/launch.json
+
+# v2: local-only folders (too large for git, or recreated on setup)
+v2/engine/checkpoints/
+v2/engine/seed-vc/
+v2/.kiosk-profile/
+v2/scratch/

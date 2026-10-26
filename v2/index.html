@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accent Français</title>
+<style>
+  :root {
+    --bg: #f6f3ee; --card: #ffffff; --ink: #1d1d22; --muted: #6b6b75; --line: #e4dfd6;
+    --blue: #1f4fbf; --red: #d63a3a; --field: #faf8f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131418; --card: #1d1e24; --ink: #f1f0ee; --muted: #9a9aa5; --line: #2e2f37;
+            --blue: #5d86ff; --red: #ff6464; --field: #16171c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 32px 16px; }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 28px; }
+  .flag { display: inline-flex; height: 18px; width: 27px; border-radius: 3px; overflow: hidden; vertical-align: -2px; margin-right: 8px; }
+  .flag i { flex: 1; } .flag i:nth-child(1){background:#1f4fbf} .flag i:nth-child(2){background:#fff} .flag i:nth-child(3){background:#d63a3a}
+  .sub { color: var(--muted); margin: 4px 0 20px; }
+  #engine { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); margin-bottom: 16px; }
+  #engine::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #c9a227; }
+  #engine.ready::before { background: #2fa36b; } #engine.error::before { background: var(--red); }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; margin: 0 0 14px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+  .inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 560px) { .inputs { grid-template-columns: 1fr; } }
+  .source {
+    border: 1.5px dashed var(--line); border-radius: 12px; padding: 18px; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 10px; min-height: 150px; justify-content: center;
+  }
+  .source.drag { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, transparent); }
+  #recBtn {
+    width: 64px; height: 64px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--red); color: #fff; font-weight: 700; font-size: 13px;
+  }
+  #recBtn.recording { animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--red) 18%, transparent); } }
+  .bar { width: 100%; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--red); }
+  .small { font-size: 13px; color: var(--muted); }
+
+  button.btn {
+    border: 1px solid var(--line); background: var(--field); color: var(--ink);
+    padding: 9px 16px; border-radius: 10px; cursor: pointer; font: inherit; font-weight: 600;
+  }
+  button.btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+
+  .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+  .settings label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  select, input[type=range] { width: 100%; }
+  select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--field); color: var(--ink); }
+
+  .track { display: grid; grid-template-columns: 170px 1fr auto; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .track:first-of-type { border-top: none; }
+  .track b { font-size: 14px; } .track span { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+  .track audio { width: 100%; height: 36px; }
+  .track a { font-size: 13px; color: var(--blue); }
+  @media (max-width: 560px) { .track { grid-template-columns: 1fr; } }
+
+  textarea { width: 100%; min-height: 56px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; background: var(--field); color: var(--ink); padding: 8px 10px; font: inherit; }
+  .ph { font-family: ui-monospace, Consolas, monospace; font-size: 13px; color: var(--muted); word-break: break-word; margin-top: 8px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  #status { font-size: 14px; color: var(--muted); }
+  #status.err { color: var(--red); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1><span class="flag"><i></i><i></i><i></i></span>Accent Français</h1>
+  <p class="sub">Record or upload up to 15 seconds of English speech, and hear it back in the same voice with a thick French accent.</p>
+  <div id="engine">Connecting to engine…</div>
+
+  <section class="card">
+    <h2>1 · Voice</h2>
+    <div class="inputs">
+      <div class="source">
+        <button id="recBtn">REC</button>
+        <div class="bar"><div id="progress"></div></div>
+        <div class="small"><span id="elapsed">0.0</span> / 15 s, click again to stop</div>
+      </div>
+      <div class="source" id="drop">
+        <button class="btn" id="pickBtn">Upload a recording</button>
+        <input type="file" id="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm,.flac" hidden>
+        <div class="small">…or drop an audio file here (WAV, MP3, M4A…). Only the first 15 s are used.</div>
+        <div class="small" id="fileName"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2 · Accent settings</h2>
+    <div class="settings">
+      <label>Accent strength
+        <select id="strength">
+          <option value="1">Light</option>
+          <option value="2">Medium</option>
+          <option value="3" selected>Thick</option>
+        </select>
+      </label>
+      <label>Accent guide voice
+        <select id="voice">
+          <option value="ff_siwis" selected>French (female)</option>
+          <option value="am_michael">Michael (male)</option>
+          <option value="bm_george">George (male, UK)</option>
+          <option value="af_heart">Heart (female)</option>
+        </select>
+      </label>
+      <label>Speed <span id="speedVal">0.90</span>
+        <input type="range" id="speed" min="0.6" max="1.3" step="0.05" value="0.9">
+      </label>
+      <label>Quality
+        <select id="steps">
+          <option value="10">Fast</option>
+          <option value="25" selected>Good</option>
+          <option value="50">Best (slower)</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="goBtn" disabled>Frenchify</button>
+      <span id="status"></span>
+    </div>
+  </section>
+
+  <section class="card hidden" id="results">
+    <h2>3 · Result</h2>
+    <div class="track"><b>Original<span>what was recorded</span></b><audio id="aOrig" controls></audio><a id="dOrig" download="original.wav">⬇</a></div>
+    <div class="track"><b>French accent<span>your voice</span></b><audio id="aFr" controls></audio><a id="dFr" download="french-accent.wav">⬇</a></div>
+    <div class="track"><b>Accent guide<span>before voice conversion</span></b><audio id="aGuide" controls></audio><a id="dGuide" download="accent-guide.wav">⬇</a></div>
+
+    <div style="margin-top:14px">
+      <div class="small" style="margin-bottom:4px">What was heard (edit and click "Redo with this text" if it misheard)</div>
+      <textarea id="text"></textarea>
+      <div class="ph" id="phonemes"></div>
+      <div class="row">
+        <button class="btn" id="redoBtn">Redo with this text</button>
+        <span class="small" id="timings"></span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const MAX_SECONDS = 15;
+const $ = id => document.getElementById(id);
+let audioCtx, mediaRecorder, chunks = [], recStart = 0, timerId, autoStopId;
+let inputWav = null;   // Blob (WAV) sent to the engine
+let engineReady = false, busy = false;
+
+function ctx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+function setStatus(t, err = false) { $('status').textContent = t; $('status').className = err ? 'err' : ''; }
+function updateGo() { $('goBtn').disabled = !(engineReady && inputWav && !busy); $('redoBtn').disabled = $('goBtn').disabled; }
+
+// ---------- Engine status ----------
+async function pollEngine() {
+  try {
+    const r = await (await fetch('/api/health')).json();
+    if (r.error) { $('engine').textContent = 'Engine failed to load: ' + r.error; $('engine').className = 'error'; return; }
+    engineReady = r.ready;
+    $('engine').textContent = r.ready ? 'Engine ready (local GPU)' : 'Loading AI models… (first start can take a minute)';
+    $('engine').className = r.ready ? 'ready' : '';
+    updateGo();
+    if (!r.ready) setTimeout(pollEngine, 1500);
+  } catch {
+    $('engine').textContent = 'Engine not running. Start it with start.bat, then reload this page.';
+    $('engine').className = 'error';
+    setTimeout(pollEngine, 3000);
+  }
+}
+pollEngine();
+
+// ---------- Recording ----------
+$('recBtn').onclick = () => (mediaRecorder && mediaRecorder.state === 'recording') ? stopRecording() : startRecording();
+
+async function startRecording() {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (e) {
+    setStatus('Microphone unavailable: ' + e.message, true);
+    return;
+  }
+  chunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+  mediaRecorder.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    await useAudio(new Blob(chunks, { type: mediaRecorder.mimeType }), 'Microphone recording');
+  };
+  mediaRecorder.start();
+  recStart = performance.now();
+  $('recBtn').textContent = 'STOP';
+  $('recBtn').classList.add('recording');
+  setStatus('Recording… speak English.');
+  timerId = setInterval(updateTimer, 50);
+  autoStopId = setTimeout(stopRecording, MAX_SECONDS * 1000);
+}
+
+function stopRecording() {
+  clearInterval(timerId);
+  clearTimeout(autoStopId);
+  updateTimer();
+  $('recBtn').textContent = 'REC';
+  $('recBtn').classList.remove('recording');
+  if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+}
+
+function updateTimer() {
+  const s = Math.min((performance.now() - recStart) / 1000, MAX_SECONDS);
+  $('elapsed').textContent = s.toFixed(1);
+  $('progress').style.width = (s / MAX_SECONDS * 100) + '%';
+}
+
+// ---------- Upload ----------
+$('pickBtn').onclick = () => $('file').click();
+$('file').onchange = () => $('file').files[0] && useAudio($('file').files[0], $('file').files[0].name);
+const drop = $('drop');
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('drag'); };
+drop.ondragleave = () => drop.classList.remove('drag');
+drop.ondrop = e => {
+  e.preventDefault(); drop.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) useAudio(f, f.name);
+};
+
+// Decode any format the browser understands, keep the first 15 s, re-encode as mono WAV.
+async function useAudio(blob, label) {
+  let buf;
+  try {
+    buf = await ctx().decodeAudioData(await blob.arrayBuffer());
+  } catch (e) {
+    setStatus('Could not read that audio file: ' + e.message, true);
+    return;
+  }
+  const n = Math.min(buf.length, buf.sampleRate * MAX_SECONDS);
+  const mono = new Float32Array(n);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < n; i++) mono[i] += d[i] / buf.numberOfChannels;
+  }
+  inputWav = encodeWav(mono, buf.sampleRate);
+  $('fileName').textContent = label + ' · ' + (n / buf.sampleRate).toFixed(1) + ' s' + (buf.length > n ? ' (trimmed to 15 s)' : '');
+  setTrack('Orig', inputWav);
+  $('results').classList.remove('hidden');
+  $('text').value = '';
+  $('phonemes').textContent = '';
+  setTrack('Fr', null); setTrack('Guide', null);
+  updateGo();
+  if (engineReady) frenchify(false);
+  else setStatus('Audio ready. Waiting for the engine to load…');
+}
+
+// ---------- Engine call ----------
+$('goBtn').onclick = () => frenchify(false);
+$('redoBtn').onclick = () => frenchify(true);
+$('speed').oninput = () => $('speedVal').textContent = (+$('speed').value).toFixed(2);
+
+async function frenchify(useText) {
+  if (!inputWav || busy) return;
+  busy = true; updateGo();
+  setStatus('Transcribing, adding the accent and converting the voice…');
+  const t0 = performance.now();
+  const form = new FormData();
+  form.append('audio', inputWav, 'input.wav');
+  for (const k of ['strength', 'voice', 'speed', 'steps']) form.append(k, $(k).value);
+  if (useText) form.append('text', $('text').value);
+  try {
+    const res = await fetch('/api/convert', { method: 'POST', body: form });
+    const r = await res.json();
+    if (!res.ok) throw new Error(r.error || res.statusText);
+    $('text').value = r.text;
+    $('phonemes').textContent = r.phonemes;
+    setTrack('Fr', b64Blob(r.audio));
+    setTrack('Guide', b64Blob(r.guide));
+    $('timings').textContent = `transcribe ${r.timings.transcribe}s · accent ${r.timings.tts}s · voice ${r.timings.convert}s`;
+    setStatus('Voilà! Done in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s.');
+    $('aFr').play();
+  } catch (e) {
+    setStatus(e.message, true);
+  } finally {
+    busy = false; updateGo();
+  }
+}
+
+// ---------- Helpers ----------
+const trackUrls = {};
+function setTrack(name, blob) {
+  if (trackUrls[name]) URL.revokeObjectURL(trackUrls[name]);
+  trackUrls[name] = blob ? URL.createObjectURL(blob) : '';
+  $('a' + name).src = trackUrls[name];
+  $('d' + name).href = trackUrls[name] || '#';
+  $('d' + name).style.visibility = blob ? 'visible' : 'hidden';
+}
+
+function b64Blob(b64) {
+  const bin = atob(b64), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: 'audio/wav' });
+}
+
+function encodeWav(d, sr) {
+  const view = new DataView(new ArrayBuffer(44 + d.length * 2));
+  const w = (o, s) => [...s].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); view.setUint32(4, 36 + d.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sr, true); view.setUint32(28, sr * 2, true); view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true); w(36, 'data'); view.setUint32(40, d.length * 2, true);
+  for (let i = 0; i < d.length; i++) view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, d[i])) * 0x7fff, true);
+  return new Blob([view], { type: 'audio/wav' });
+}
+</script>
+</body>
+</html>
