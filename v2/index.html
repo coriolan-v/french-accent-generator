@@ -121,6 +121,14 @@
           <option value="50">Best (slower)</option>
         </select>
       </label>
+      <label>Noise cleaning
+        <select id="clean">
+          <option value="0" selected>Off</option>
+          <option value="1">Light</option>
+          <option value="2">Medium</option>
+          <option value="3">Strong</option>
+        </select>
+      </label>
     </div>
     <div class="row">
       <button class="btn primary" id="goBtn" disabled>Frenchify</button>
@@ -131,6 +139,7 @@
   <section class="card hidden" id="results">
     <h2>3 · Result</h2>
     <div class="track"><b>Original<span>what was recorded</span></b><audio id="aOrig" controls></audio><a id="dOrig" download="original.wav">⬇</a></div>
+    <div class="track hidden" id="tClean"><b>Cleaned input<span>after noise cleaning</span></b><audio id="aClean" controls></audio><a id="dClean" download="cleaned.wav">⬇</a></div>
     <div class="track"><b>French accent<span>your voice</span></b><audio id="aFr" controls></audio><a id="dFr" download="french-accent.wav">⬇</a></div>
     <div class="track"><b>Accent guide<span>before voice conversion</span></b><audio id="aGuide" controls></audio><a id="dGuide" download="accent-guide.wav">⬇</a></div>
 
@@ -254,7 +263,8 @@ async function useAudio(blob, label) {
   $('results').classList.remove('hidden');
   $('text').value = '';
   $('phonemes').textContent = '';
-  setTrack('Fr', null); setTrack('Guide', null);
+  setTrack('Fr', null); setTrack('Guide', null); setTrack('Clean', null);
+  $('tClean').classList.add('hidden');
   updateGo();
   if (engineReady) frenchify(false);
   else setStatus('Audio ready. Waiting for the engine to load…');
@@ -264,6 +274,9 @@ async function useAudio(blob, label) {
 $('goBtn').onclick = () => frenchify(false);
 $('redoBtn').onclick = () => frenchify(true);
 $('speed').oninput = () => $('speedVal').textContent = (+$('speed').value).toFixed(2);
+// The noise level is set once on site, so remember it across reloads.
+try { if (localStorage.getItem('clean')) $('clean').value = localStorage.getItem('clean'); } catch {}
+$('clean').onchange = () => { try { localStorage.setItem('clean', $('clean').value); } catch {} };
 
 async function frenchify(useText) {
   if (!inputWav || busy) return;
@@ -272,7 +285,7 @@ async function frenchify(useText) {
   const t0 = performance.now();
   const form = new FormData();
   form.append('audio', inputWav, 'input.wav');
-  for (const k of ['strength', 'voice', 'speed', 'steps']) form.append(k, $(k).value);
+  for (const k of ['strength', 'voice', 'speed', 'steps', 'clean']) form.append(k, $(k).value);
   if (useText) form.append('text', $('text').value);
   try {
     const res = await fetch('/api/convert', { method: 'POST', body: form });
@@ -282,7 +295,9 @@ async function frenchify(useText) {
     $('phonemes').textContent = r.phonemes;
     setTrack('Fr', b64Blob(r.audio));
     setTrack('Guide', b64Blob(r.guide));
-    $('timings').textContent = `transcribe ${r.timings.transcribe}s · accent ${r.timings.tts}s · voice ${r.timings.convert}s`;
+    setTrack('Clean', r.cleaned ? b64Blob(r.cleaned) : null);
+    $('tClean').classList.toggle('hidden', !r.cleaned);
+    $('timings').textContent = (r.cleaned ? `clean ${r.timings.clean}s · ` : '') + `transcribe ${r.timings.transcribe}s · accent ${r.timings.tts}s · voice ${r.timings.convert}s`;
     setStatus('Voilà! Done in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s.');
     $('aFr').play();
   } catch (e) {

@@ -52,7 +52,7 @@ def health():
 
 @app.post('/api/convert')
 def convert(audio: UploadFile = File(...), strength: int = Form(3), voice: str = Form('ff_siwis'),
-            speed: float = Form(0.9), steps: int = Form(25), text: str = Form('')):
+            speed: float = Form(0.9), steps: int = Form(25), text: str = Form(''), clean: int = Form(0)):
     p = state['pipeline']
     if p is None:
         return JSONResponse({'error': 'Models are still loading, try again in a moment.'}, status_code=503)
@@ -63,7 +63,7 @@ def convert(audio: UploadFile = File(...), strength: int = Form(3), voice: str =
             r = p.run(wav, sr, strength=max(1, min(3, strength)),
                       voice=voice if voice in GUIDE_VOICES else 'ff_siwis',
                       speed=max(0.6, min(1.3, speed)), steps=max(5, min(60, steps)),
-                      text=text.strip() or None)
+                      text=text.strip() or None, clean=max(0, min(3, clean)))
     except ValueError as e:
         return JSONResponse({'error': str(e)}, status_code=422)
     except Exception as e:
@@ -72,6 +72,7 @@ def convert(audio: UploadFile = File(...), strength: int = Form(3), voice: str =
     return {
         'text': r['text'], 'phonemes': r['phonemes_fr'],
         'audio': wav_b64(r['audio'], r['sr']), 'guide': wav_b64(r['guide'], r['sr']),
+        'cleaned': wav_b64(r['cleaned'], r['sr']) if r['cleaned'] is not None else None,
         'timings': {k: round(v, 2) for k, v in r['timings'].items()},
     }
 

@@ -8,6 +8,7 @@ from kokoro import KPipeline
 from transformers import pipeline as hf_pipeline
 
 from accent import frenchify
+from denoise import Denoiser
 from vc import SR as VC_SR, VoiceConverter
 
 KOKORO_SR = 24000
@@ -20,6 +21,7 @@ class FrenchAccentPipeline:
                                torch_dtype=torch.float16, device=device)
         self.tts = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M', device=device)
         self.vc = VoiceConverter(device)
+        self.denoiser = Denoiser()
 
     def transcribe(self, wav16k):
         out = self.asr({'raw': wav16k, 'sampling_rate': 16000},
@@ -37,21 +39,25 @@ class FrenchAccentPipeline:
         audio = [r.audio.numpy() for c in chunks if c for r in self.tts.generate_from_tokens(c, voice=voice, speed=speed)]
         return np.concatenate(audio) if audio else np.zeros(0, np.float32)
 
-    def run(self, wav, sr, strength=3, voice='ff_siwis', speed=0.9, steps=25, text=None,
+    def run(self, wav, sr, strength=3, voice='ff_siwis', speed=0.9, steps=25, text=None, clean=0,
             cfg_rate=0.3, ref_seconds=10):
         # Weak guidance + a shorter visitor reference keep more of the guide's accent (confirm_settings.py).
+        # clean: 0 = off, 1-3 = light/medium/strong background noise removal (denoise.py).
         t = {}
         t0 = time.perf_counter()
-        wav = librosa.to_mono(wav.T) if wav.ndim > 1 else wav
-        wav, _ = librosa.effects.trim(wav.astype(np.float32), top_db=35)
+        raw = (librosa.to_mono(wav.T) if wav.ndim > 1 else wav).astype(np.float32)
+        wav = self.denoiser.clean(raw, sr, clean)
+        t['clean'] = time.perf_counter() - t0
+        wav, (a, b) = librosa.effects.trim(wav, top_db=35)
         if len(wav) < sr * 0.3:
             raise ValueError('No speech detected')
-        wav16 = librosa.resample(wav, orig_sr=sr, target_sr=16000)
+        # Whisper copes with noise better than with denoising artifacts, so only the voice reference is cleaned.
+        wav16 = librosa.resample(raw[a:b], orig_sr=sr, target_sr=16000)
         ref = librosa.resample(wav, orig_sr=sr, target_sr=VC_SR)
 
         if text is None:
             text = self.transcribe(wav16)
-        t['transcribe'] = time.perf_counter() - t0
+        t['transcribe'] = time.perf_counter() - t0 - sum(t.values())
         if not text:
             raise ValueError('No words recognised')
 
@@ -68,4 +74,5 @@ class FrenchAccentPipeline:
         return {
             'text': text, 'phonemes_en': phonemes_en, 'phonemes_fr': phonemes_fr,
             'guide': guide22, 'audio': out.astype(np.float32), 'sr': VC_SR, 'timings': t,
+            'cleaned': ref if clean else None,
         }
