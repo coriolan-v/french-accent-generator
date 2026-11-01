@@ -23,6 +23,7 @@
   #engine { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); margin-bottom: 16px; }
   #engine::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #c9a227; }
   #engine.ready::before { background: #2fa36b; } #engine.error::before { background: var(--red); }
+  #lightsBtn { margin: 0 0 16px 10px; padding: 4px 10px; font-size: 13px; }
 
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
   .card h2 { font-size: 13px; margin: 0 0 14px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
@@ -75,6 +76,7 @@
   <h1><span class="flag"><i></i><i></i><i></i></span>Accent Français</h1>
   <p class="sub">Record or upload up to 15 seconds of English speech, and hear it back in the same voice with a thick French accent.</p>
   <div id="engine">Connecting to engine…</div>
+  <button class="btn hidden" id="lightsBtn">Connect pyramid lights</button>
 
   <section class="card">
     <h2>1 · Voice</h2>
@@ -157,6 +159,10 @@
 
 <script>
 const MAX_SECONDS = 15;
+const TAP_MS = 1000;        // button released sooner than this: hands-free message instead of hold-to-talk
+const NO_SPEECH_MS = 5000;  // a hands-free recording is cancelled if nobody has spoken by then
+const SPEECH_DB = -45;      // mic level (dBFS) that counts as speech; raise it if room noise passes as speech
+const SPEECH_MIN_MS = 300;  // total time above that level needed to count as speech
 const $ = id => document.getElementById(id);
 let audioCtx, mediaRecorder, chunks = [], recStart = 0, timerId, autoStopId;
 let inputWav = null;   // Blob (WAV) sent to the engine
@@ -189,9 +195,29 @@ async function pollEngine() {
 pollEngine();
 
 // ---------- Recording ----------
-$('recBtn').onclick = () => (mediaRecorder && mediaRecorder.state === 'recording') ? stopRecording() : startRecording();
+const isRecording = () => mediaRecorder && mediaRecorder.state === 'recording';
+$('recBtn').onclick = () => isRecording() ? stopRecording() : startRecording();
+
+// Physical button: the Pro Micro holds F13 while it is pressed (see arduino/PyramidLights).
+// Hold it while speaking, or tap it for a hands-free message and tap again to finish early.
+let buttonHeld = false, buttonDownAt = 0;
+document.addEventListener('keydown', e => {
+  if (e.code !== 'F13' || e.repeat) return;
+  e.preventDefault();
+  if (isRecording()) { stopRecording(); return; }
+  if (busy) return;
+  buttonHeld = true;
+  buttonDownAt = performance.now();
+  startRecording();
+});
+document.addEventListener('keyup', e => {
+  if (e.code !== 'F13' || !buttonHeld) return;
+  buttonHeld = false;
+  if (performance.now() - buttonDownAt >= TAP_MS) stopRecording();   // held while speaking
+});
 
 async function startRecording() {
+  document.querySelectorAll('audio').forEach(a => a.pause());   // don't record the last result playing back
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
@@ -199,29 +225,39 @@ async function startRecording() {
     setStatus('Microphone unavailable: ' + e.message, true);
     return;
   }
+  if (isRecording()) { stream.getTracks().forEach(t => t.stop()); return; }   // double press while the mic opened
+  listenForSpeech(stream);
   chunks = [];
   mediaRecorder = new MediaRecorder(stream);
   mediaRecorder.ondataavailable = e => e.data.size && chunks.push(e.data);
   mediaRecorder.onstop = async () => {
     stream.getTracks().forEach(t => t.stop());
+    if (!heardSpeech()) {
+      setStatus('Nobody spoke, so the recording was cancelled.');
+      lights('C');
+      return;
+    }
     await useAudio(new Blob(chunks, { type: mediaRecorder.mimeType }), 'Microphone recording');
+    syncLights();
   };
   mediaRecorder.start();
   recStart = performance.now();
   $('recBtn').textContent = 'STOP';
   $('recBtn').classList.add('recording');
   setStatus('Recording… speak English.');
-  timerId = setInterval(updateTimer, 50);
+  syncLights();
+  timerId = setInterval(tick, 50);
   autoStopId = setTimeout(stopRecording, MAX_SECONDS * 1000);
 }
 
 function stopRecording() {
+  if (!isRecording()) return;
   clearInterval(timerId);
   clearTimeout(autoStopId);
   updateTimer();
   $('recBtn').textContent = 'REC';
   $('recBtn').classList.remove('recording');
-  if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+  mediaRecorder.stop();
 }
 
 function updateTimer() {
@@ -229,6 +265,36 @@ function updateTimer() {
   $('elapsed').textContent = s.toFixed(1);
   $('progress').style.width = (s / MAX_SECONDS * 100) + '%';
 }
+
+function tick() {
+  updateTimer();
+  measureSpeech(50);
+  // Not held down (a button tap or a click): give up if nobody has spoken by NO_SPEECH_MS.
+  if (!buttonHeld && !heardSpeech() && performance.now() - recStart >= NO_SPEECH_MS) stopRecording();
+}
+
+// ---------- Speech detection ----------
+// Adds up the time the mic level is above SPEECH_DB, so silent recordings are dropped.
+let speechSource = null, analyser = null, levels, speechMs = 0;
+function listenForSpeech(stream) {
+  speechSource?.disconnect();
+  speechMs = 0;
+  analyser = null;
+  if (ctx().state !== 'running') return;   // can't measure, so the recording counts as speech
+  analyser = ctx().createAnalyser();
+  analyser.fftSize = 2048;
+  levels = new Float32Array(analyser.fftSize);
+  speechSource = ctx().createMediaStreamSource(stream);
+  speechSource.connect(analyser);
+}
+function measureSpeech(ms) {
+  if (!analyser) return;
+  analyser.getFloatTimeDomainData(levels);
+  let sum = 0;
+  for (const v of levels) sum += v * v;
+  if (10 * Math.log10(sum / levels.length) > SPEECH_DB) speechMs += ms;
+}
+const heardSpeech = () => !analyser || speechMs >= SPEECH_MIN_MS;
 
 // ---------- Upload ----------
 $('pickBtn').onclick = () => $('file').click();
@@ -280,7 +346,7 @@ $('clean').onchange = () => { try { localStorage.setItem('clean', $('clean').val
 
 async function frenchify(useText) {
   if (!inputWav || busy) return;
-  busy = true; updateGo();
+  busy = true; updateGo(); syncLights();
   setStatus('Transcribing, adding the accent and converting the voice…');
   const t0 = performance.now();
   const form = new FormData();
@@ -303,8 +369,52 @@ async function frenchify(useText) {
   } catch (e) {
     setStatus(e.message, true);
   } finally {
-    busy = false; updateGo();
+    busy = false; updateGo(); syncLights();
   }
+}
+
+// ---------- Pyramid lights ----------
+// The Pro Micro shows the app state on its LEDs. The page sends one letter per change over
+// USB serial: I idle, R recording, W working, P playing the result, C cancelled (no speech).
+// Chrome asks once which port to allow (button under the title), then reconnects by itself.
+const LIGHTS_VENDOR = 0x1B4F;   // SparkFun Pro Micro
+let lightsPort = null, lightsWriter = null;
+
+function lights(code) {
+  lightsWriter?.write(new TextEncoder().encode(code)).catch(() => {});
+}
+function syncLights() {
+  lights(isRecording() ? 'R' : busy ? 'W' : !$('aFr').paused ? 'P' : 'I');
+}
+$('aFr').onplay = $('aFr').onpause = syncLights;
+
+async function connectLights(port) {
+  if (lightsWriter || port.getInfo().usbVendorId !== LIGHTS_VENDOR) return;
+  try {
+    await port.open({ baudRate: 115200 });
+    await port.setSignals({ dataTerminalReady: true });   // without it the board only follows the button
+    lightsPort = port;
+    lightsWriter = port.writable.getWriter();
+    $('lightsBtn').classList.add('hidden');
+    syncLights();
+  } catch (e) {
+    setStatus('Could not connect the pyramid lights: ' + e.message, true);
+  }
+}
+if ('serial' in navigator) {
+  navigator.serial.getPorts().then(ports => {
+    const port = ports.find(p => p.getInfo().usbVendorId === LIGHTS_VENDOR);
+    port ? connectLights(port) : $('lightsBtn').classList.remove('hidden');
+  });
+  navigator.serial.addEventListener('connect', e => connectLights(e.target));   // board plugged back in
+  navigator.serial.addEventListener('disconnect', e => {
+    if (e.target !== lightsPort) return;
+    lightsWriter?.releaseLock();
+    lightsWriter = null;
+    lightsPort.close().catch(() => {});
+  });
+  $('lightsBtn').onclick = () =>
+    navigator.serial.requestPort({ filters: [{ usbVendorId: LIGHTS_VENDOR }] }).then(connectLights, () => {});
 }
 
 // ---------- Helpers ----------

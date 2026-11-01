@@ -19,3 +19,8 @@ v2/engine/checkpoints/
 v2/engine/seed-vc/
 v2/.kiosk-profile/
 v2/scratch/
+v2/.pio/
+
+# v2: PlatformIO-generated editor files (machine-specific paths)
+v2/.vscode/c_cpp_properties.json
+v2/.vscode/launch.json
