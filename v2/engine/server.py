@@ -1,6 +1,7 @@
-"""Local web server: serves the page and runs the French accent pipeline on the GPU.
+"""Local web server: serves the pages and runs the French accent pipeline on the GPU.
 
-Run:  .venv\\Scripts\\python server.py   then open http://localhost:8000
+Run:  .venv\\Scripts\\python server.py   then open http://localhost:8000 (operator page;
+the round visitor display is /kiosk, opened from there).
 """
 import base64
 import io
@@ -40,9 +41,24 @@ def wav_b64(audio, sr):
     return base64.b64encode(buf.getvalue()).decode()
 
 
+def page_file(name, media_type=None):
+    # no-cache: the browser checks for edits on every load instead of reusing an old copy.
+    return FileResponse(os.path.join(ROOT, name), media_type=media_type, headers={'Cache-Control': 'no-cache'})
+
+
 @app.get('/')
 def index():
-    return FileResponse(os.path.join(ROOT, 'index.html'))
+    return page_file('index.html')
+
+
+@app.get('/kiosk')
+def kiosk():
+    return page_file('kiosk.html')
+
+
+@app.get('/common.js')
+def common_js():
+    return page_file('common.js', 'text/javascript')
 
 
 @app.get('/api/health')

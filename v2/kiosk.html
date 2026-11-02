@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frenchify me</title>
+<style>
+  :root { --red: #d63a3a; --blue: #1f4fbf; --white: #f4f2ee; --grey: #3a3b44; --hint: #a9a9b6; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { display: grid; place-items: center; font-family: "Segoe UI", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  svg { width: 100vmin; height: 100vmin; display: block; }
+
+  .ring { fill: none; stroke-width: 28; }
+  .track { stroke: #17171c; }
+  #redRing, .flag-red { stroke: var(--red); }
+  .flag-white { stroke: var(--white); }
+  .flag-blue { stroke: var(--blue); }
+  #reveal { fill: none; stroke: #fff; stroke-width: 40; stroke-dasharray: 0 100; }
+  #redRing, #flagRing { display: none; }
+  [data-state=recording] #redRing, [data-state=working] #flagRing, [data-state=playing] #flagRing { display: inline; }
+  [data-state=playing] #reveal { transition: stroke-dasharray .4s ease-out; }
+  [data-state=playing] #flagRing { animation: spin 8s linear infinite; }
+  #flagRing { transform-origin: 540px 540px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .title { fill: #fff; font-size: 96px; font-weight: 900; letter-spacing: 8px; text-anchor: middle; }
+  .hint { fill: var(--hint); font-size: 40px; font-weight: 600; text-anchor: middle; }
+
+  #button { cursor: pointer; }
+  #face { fill: var(--grey); transition: fill .3s; }
+  [data-state=idle] #face, [data-state=recording] #face { fill: var(--red); }
+  [data-state=working] #face, [data-state=playing] #face { fill: var(--blue); }
+  #halo { fill: var(--red); opacity: 0; transform-box: fill-box; transform-origin: center; }
+  [data-state=idle] #halo { opacity: .25; animation: breathe 3s ease-in-out infinite; }
+  [data-state=recording] #halo { opacity: .3; }
+  @keyframes breathe { 50% { transform: scale(1.08); } }
+  #mic { display: none; }
+  [data-state=waiting] #mic, [data-state=idle] #mic { display: inline; }
+  [data-state=waiting] #mic { opacity: .4; }
+  #big { fill: #fff; font-size: 88px; font-weight: 900; text-anchor: middle; dominant-baseline: central; }
+  [data-state=recording] #big { font-size: 240px; }
+  [data-state=working] #big { font-size: 64px; }
+</style>
+</head>
+<body data-state="waiting">
+<!-- Drawn for the 1080 × 1080 round panel: only the circle is visible. -->
+<svg viewBox="0 0 1080 1080">
+  <defs>
+    <path id="topArc" d="M 130 540 A 410 410 0 0 1 950 540"/>
+    <path id="bottomArc" d="M 92 540 A 448 448 0 0 0 988 540"/>
+    <mask id="ringMask">
+      <circle id="reveal" cx="540" cy="540" r="512" pathLength="100" transform="rotate(-90 540 540)"/>
+    </mask>
+  </defs>
+
+  <!-- Progress around the edge: red while recording, the French flag while processing and playing. -->
+  <circle class="ring track" cx="540" cy="540" r="512"/>
+  <g mask="url(#ringMask)">
+    <circle class="ring" id="redRing" cx="540" cy="540" r="512"/>
+    <g id="flagRing">
+      <circle class="ring flag-white" cx="540" cy="540" r="512"/>
+      <path class="ring flag-blue" d="M 540 28 A 512 512 0 0 1 983.4 796"/>
+      <path class="ring flag-red" d="M 96.6 796 A 512 512 0 0 1 540 28"/>
+    </g>
+  </g>
+
+  <text class="title"><textPath href="#topArc" startOffset="50%">FRENCHIFY ME</textPath></text>
+  <text class="hint"><textPath href="#bottomArc" startOffset="50%" id="hint"></textPath></text>
+
+  <g id="button">
+    <circle id="halo" cx="540" cy="540" r="260"/>
+    <circle id="face" cx="540" cy="540" r="260"/>
+    <g id="mic" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round">
+      <rect x="495" y="400" width="90" height="170" rx="45" fill="#fff" stroke="none"/>
+      <path d="M 440 520 A 100 100 0 0 0 640 520 M 540 620 V 670 M 490 670 H 590"/>
+    </g>
+    <text id="big" x="540" y="540"></text>
+  </g>
+</svg>
+
+<script src="/common.js"></script>
+<script>
+const TAP_MS = 1000;   // button released sooner than this: hands-free message instead of hold-to-talk
+const HINTS = {
+  waiting: 'Warming up, one moment…',
+  idle: 'Press the button and speak English',
+  recording: 'Listening… speak English!',
+  working: 'Adding the French accent…',
+  playing: 'That’s you, with a French accent!',
+  cancelled: 'I didn’t hear anything, try again',
+  error: 'Something went wrong, try again',
+};
+const BIG = { working: 'Un moment…', playing: 'Voilà !', cancelled: 'Pardon ?', error: 'Oups !' };
+const LIGHT_CODES = { recording: 'R', working: 'W', playing: 'P', cancelled: 'C' };
+
+let state = 'waiting', afterId = 0, downAt = 0;
+const rec = new Recorder({ stop: recorded });
+const player = new Audio();
+
+function setState(s) {
+  clearTimeout(afterId);
+  state = s;
+  document.body.dataset.state = s;
+  $('hint').textContent = HINTS[s];
+  $('big').textContent = BIG[s] ?? '';
+  setRing(s === 'playing' ? 1 : 0);
+  syncLights();
+  report();
+}
+const after = (ms, fn) => { afterId = setTimeout(fn, ms); };
+const notice = s => { setState(s); after(s === 'error' ? 4000 : 2500, waitForEngine); };   // cancelled or error
+const canStart = () => ['idle', 'playing', 'cancelled', 'error'].includes(state);
+
+// Visitors can start once the engine has loaded its models.
+async function waitForEngine() {
+  let r = null;
+  try { r = await (await fetch('/api/health')).json(); } catch {}
+  if (!['waiting', 'cancelled', 'error'].includes(state)) return;   // a visitor got going meanwhile
+  if (r?.ready) return setState('idle');
+  setState('waiting');
+  after(2000, waitForEngine);
+}
+
+// ---------- Button ----------
+// The Pro Micro holds F13 while its button is pressed. Hold it while speaking, or tap it for a
+// hands-free message and tap again to finish early. Tapping the screen works like a tap.
+function buttonDown() {
+  if (rec.active) { rec.stop(); return; }
+  if (!canStart()) return;
+  rec.held = true;
+  downAt = performance.now();
+  startRecording();
+}
+function buttonUp() {
+  if (!rec.held) return;
+  rec.held = false;
+  if (performance.now() - downAt >= TAP_MS) rec.stop();   // held while speaking
+}
+document.addEventListener('keydown', e => {
+  if (e.code !== 'F13') return;
+  e.preventDefault();
+  if (!e.repeat) buttonDown();
+});
+document.addEventListener('keyup', e => {
+  if (e.code !== 'F13') return;
+  e.preventDefault();
+  buttonUp();
+});
+$('button').onclick = () => rec.active ? rec.stop() : canStart() && startRecording();
+
+// Full screen needs a click or key press in this window; the same press also lets it play sound.
+// After Escape, the next press goes back to full screen.
+for (const type of ['pointerdown', 'keydown']) {
+  addEventListener(type, () => document.fullscreenElement || document.documentElement.requestFullscreen().catch(() => {}));
+}
+
+// ---------- Visitor run ----------
+async function startRecording() {
+  player.pause();
+  try {
+    if (!(await rec.start())) return;
+  } catch (e) {
+    log('Microphone unavailable: ' + e.message);
+    return notice('error');
+  }
+  voice = 0;
+  setState('recording');
+}
+
+async function recorded(blob) {
+  if (!blob) return notice('cancelled');
+  setState('working');
+  const t0 = performance.now();
+  workStart = t0;
+  workExpected = Math.max(1, ratio * rec.elapsed) * 1000;
+  let input = null, seconds = 0;
+  try {
+    ({ wav: input, seconds } = await toWav(blob));
+    const r = await convert(input);
+    const total = (performance.now() - t0) / 1000;
+    learn(total / seconds);
+    channel.postMessage({ type: 'run', input, seconds, result: r, total });
+    play(b64Blob(r.audio));
+  } catch (e) {
+    channel.postMessage({ type: 'run', input, seconds, error: e.message });
+    notice(e.status === 422 ? 'cancelled' : 'error');   // 422: no speech or no words heard
+  }
+}
+
+function play(blob) {
+  URL.revokeObjectURL(player.src);
+  player.src = URL.createObjectURL(blob);
+  setState('playing');
+  player.play().catch(() => {
+    // The browser blocks sound in a window nobody has clicked or typed in yet, so the operator page
+    // plays it. This window can still read the length, to go back to idle when it would have ended.
+    channel.postMessage({ type: 'play' });
+    const done = () => state === 'playing' && after((player.duration + 1) * 1000, () => setState('idle'));
+    isNaN(player.duration) ? player.addEventListener('loadedmetadata', done, { once: true }) : done();
+  });
+}
+player.onended = () => state === 'playing' && setState('idle');
+
+// ---------- Progress ring ----------
+// The engine reports no progress, so the ring follows an estimate learnt from earlier runs
+// (seconds of processing per second of speech). Past the estimate it slows down instead of stopping.
+let ratio = +(localStorage.getItem('workRatio') || 0.25), workStart = 0, workExpected = 1000, voice = 0;
+function learn(r) {
+  ratio = 0.7 * ratio + 0.3 * r;
+  try { localStorage.setItem('workRatio', ratio); } catch {}
+}
+function setRing(p) { $('reveal').style.strokeDasharray = `${Math.min(p, 1) * 100} ${p >= 1 ? 0 : 100}`; }
+
+function animate() {
+  if (state === 'recording') {
+    setRing(rec.elapsed / MAX_SECONDS);
+    $('big').textContent = Math.ceil(MAX_SECONDS - rec.elapsed);
+    voice = Math.max(Math.min(1, Math.max(0, (rec.level + 60) / 45)), voice * 0.9);   // -60..-15 dBFS
+    $('halo').style.transform = `scale(${1 + 0.2 * voice})`;
+  } else {
+    $('halo').style.transform = '';
+    if (state === 'working') {
+      const t = (performance.now() - workStart) / workExpected;
+      setRing(t < 1 ? 0.9 * t : 0.99 - 0.09 * Math.exp(1 - t));
+    }
+  }
+  requestAnimationFrame(animate);
+}
+
+// ---------- Pyramid lights ----------
+// The Pro Micro shows the state on its LEDs. This page sends one letter per change over USB serial:
+// I idle, R recording, W working, P playing the result, C cancelled (no speech).
+// The operator page asks once which port to allow; this page then connects by itself.
+let lightsPort = null, lightsWriter = null;
+
+function syncLights() {
+  lightsWriter?.write(new TextEncoder().encode(LIGHT_CODES[state] ?? 'I')).catch(() => {});
+}
+async function connectLights(port) {
+  if (lightsWriter || port.getInfo().usbVendorId !== LIGHTS_VENDOR) return;
+  try {
+    await port.open({ baudRate: 115200 });
+    await port.setSignals({ dataTerminalReady: true });   // without it the board only follows the button
+    lightsPort = port;
+    lightsWriter = port.writable.getWriter();
+    syncLights();
+    report();
+  } catch (e) {
+    log('Could not connect the pyramid lights: ' + e.message);
+  }
+}
+function findLights() {
+  navigator.serial?.getPorts().then(ports => {
+    const port = ports.find(p => p.getInfo().usbVendorId === LIGHTS_VENDOR);
+    if (port) connectLights(port);
+  });
+}
+if ('serial' in navigator) {
+  navigator.serial.addEventListener('connect', e => connectLights(e.target));   // board plugged back in
+  navigator.serial.addEventListener('disconnect', e => {
+    if (e.target !== lightsPort) return;
+    lightsWriter?.releaseLock();
+    lightsWriter = null;
+    lightsPort.close().catch(() => {});
+    report();
+  });
+}
+
+// ---------- Operator page ----------
+function report() { channel.postMessage({ type: 'kiosk', state, lights: !!lightsWriter }); }
+function log(message) { channel.postMessage({ type: 'log', message }); }
+channel.onmessage = ({ data: m }) => {
+  if (m.type === 'button') m.down ? buttonDown() : buttonUp();
+  else if (m.type === 'lights') findLights();
+  else if (m.type === 'hello') report();
+};
+setInterval(report, 2000);
+addEventListener('pagehide', () => channel.postMessage({ type: 'kiosk', state: 'closed' }));
+
+setState('waiting');
+waitForEngine();
+findLights();
+animate();
+</script>
+</body>
+</html>

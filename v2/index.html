@@ -20,10 +20,11 @@
   .flag { display: inline-flex; height: 18px; width: 27px; border-radius: 3px; overflow: hidden; vertical-align: -2px; margin-right: 8px; }
   .flag i { flex: 1; } .flag i:nth-child(1){background:#1f4fbf} .flag i:nth-child(2){background:#fff} .flag i:nth-child(3){background:#d63a3a}
   .sub { color: var(--muted); margin: 4px 0 20px; }
-  #engine { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); margin-bottom: 16px; }
-  #engine::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #c9a227; }
-  #engine.ready::before { background: #2fa36b; } #engine.error::before { background: var(--red); }
-  #lightsBtn { margin: 0 0 16px 10px; padding: 4px 10px; font-size: 13px; }
+  .status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 16px; }
+  .status button.btn { padding: 4px 10px; font-size: 13px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #c9a227; }
+  .pill.ready::before { background: #2fa36b; } .pill.error::before { background: var(--red); } .pill.off::before { background: var(--line); }
 
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
   .card h2 { font-size: 13px; margin: 0 0 14px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
@@ -74,9 +75,13 @@
 <body>
 <main>
   <h1><span class="flag"><i></i><i></i><i></i></span>Accent Français</h1>
-  <p class="sub">Record or upload up to 15 seconds of English speech, and hear it back in the same voice with a thick French accent.</p>
-  <div id="engine">Connecting to engine…</div>
-  <button class="btn hidden" id="lightsBtn">Connect pyramid lights</button>
+  <p class="sub">Record or upload up to 15 seconds of English speech, and hear it back in the same voice with a thick French accent. Visitors use the round display; their runs show up here too.</p>
+  <div class="status">
+    <div class="pill" id="engine">Connecting to engine…</div>
+    <div class="pill off" id="kiosk">Round display not open</div>
+    <button class="btn" id="kioskBtn">Open round display</button>
+    <button class="btn hidden" id="lightsBtn">Connect pyramid lights</button>
+  </div>
 
   <section class="card">
     <h2>1 · Voice</h2>
@@ -96,7 +101,7 @@
   </section>
 
   <section class="card">
-    <h2>2 · Accent settings</h2>
+    <h2>2 · Accent settings (also used for visitors)</h2>
     <div class="settings">
       <label>Accent strength
         <select id="strength">
@@ -157,22 +162,11 @@
   </section>
 </main>
 
+<script src="/common.js"></script>
 <script>
-const MAX_SECONDS = 15;
-const TAP_MS = 1000;        // button released sooner than this: hands-free message instead of hold-to-talk
-const NO_SPEECH_MS = 5000;  // a hands-free recording is cancelled if nobody has spoken by then
-const SPEECH_DB = -45;      // mic level (dBFS) that counts as speech; raise it if room noise passes as speech
-const SPEECH_MIN_MS = 300;  // total time above that level needed to count as speech
-const $ = id => document.getElementById(id);
-let audioCtx, mediaRecorder, chunks = [], recStart = 0, timerId, autoStopId;
 let inputWav = null;   // Blob (WAV) sent to the engine
 let engineReady = false, busy = false;
 
-function ctx() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  return audioCtx;
-}
 function setStatus(t, err = false) { $('status').textContent = t; $('status').className = err ? 'err' : ''; }
 function updateGo() { $('goBtn').disabled = !(engineReady && inputWav && !busy); $('redoBtn').disabled = $('goBtn').disabled; }
 
@@ -180,121 +174,49 @@ function updateGo() { $('goBtn').disabled = !(engineReady && inputWav && !busy);
 async function pollEngine() {
   try {
     const r = await (await fetch('/api/health')).json();
-    if (r.error) { $('engine').textContent = 'Engine failed to load: ' + r.error; $('engine').className = 'error'; return; }
+    if (r.error) { $('engine').textContent = 'Engine failed to load: ' + r.error; $('engine').className = 'pill error'; return; }
     engineReady = r.ready;
     $('engine').textContent = r.ready ? 'Engine ready (local GPU)' : 'Loading AI models… (first start can take a minute)';
-    $('engine').className = r.ready ? 'ready' : '';
+    $('engine').className = r.ready ? 'pill ready' : 'pill';
     updateGo();
     if (!r.ready) setTimeout(pollEngine, 1500);
   } catch {
     $('engine').textContent = 'Engine not running. Start it with start.bat, then reload this page.';
-    $('engine').className = 'error';
+    $('engine').className = 'pill error';
     setTimeout(pollEngine, 3000);
   }
 }
 pollEngine();
 
 // ---------- Recording ----------
-const isRecording = () => mediaRecorder && mediaRecorder.state === 'recording';
-$('recBtn').onclick = () => isRecording() ? stopRecording() : startRecording();
-
-// Physical button: the Pro Micro holds F13 while it is pressed (see arduino/PyramidLights).
-// Hold it while speaking, or tap it for a hands-free message and tap again to finish early.
-let buttonHeld = false, buttonDownAt = 0;
-document.addEventListener('keydown', e => {
-  if (e.code !== 'F13' || e.repeat) return;
-  e.preventDefault();
-  if (isRecording()) { stopRecording(); return; }
-  if (busy) return;
-  buttonHeld = true;
-  buttonDownAt = performance.now();
-  startRecording();
-});
-document.addEventListener('keyup', e => {
-  if (e.code !== 'F13' || !buttonHeld) return;
-  buttonHeld = false;
-  if (performance.now() - buttonDownAt >= TAP_MS) stopRecording();   // held while speaking
-});
-
-async function startRecording() {
+// Test recordings made on this page. The visitor button works the round display (see below).
+const rec = new Recorder({ tick: updateTimer, stop: recorded });
+$('recBtn').onclick = async () => {
+  if (rec.active) return rec.stop();
   document.querySelectorAll('audio').forEach(a => a.pause());   // don't record the last result playing back
-  let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    if (!(await rec.start())) return;
   } catch (e) {
     setStatus('Microphone unavailable: ' + e.message, true);
     return;
   }
-  if (isRecording()) { stream.getTracks().forEach(t => t.stop()); return; }   // double press while the mic opened
-  listenForSpeech(stream);
-  chunks = [];
-  mediaRecorder = new MediaRecorder(stream);
-  mediaRecorder.ondataavailable = e => e.data.size && chunks.push(e.data);
-  mediaRecorder.onstop = async () => {
-    stream.getTracks().forEach(t => t.stop());
-    if (!heardSpeech()) {
-      setStatus('Nobody spoke, so the recording was cancelled.');
-      lights('C');
-      return;
-    }
-    await useAudio(new Blob(chunks, { type: mediaRecorder.mimeType }), 'Microphone recording');
-    syncLights();
-  };
-  mediaRecorder.start();
-  recStart = performance.now();
   $('recBtn').textContent = 'STOP';
   $('recBtn').classList.add('recording');
   setStatus('Recording… speak English.');
-  syncLights();
-  timerId = setInterval(tick, 50);
-  autoStopId = setTimeout(stopRecording, MAX_SECONDS * 1000);
-}
+};
 
-function stopRecording() {
-  if (!isRecording()) return;
-  clearInterval(timerId);
-  clearTimeout(autoStopId);
+function recorded(blob) {
   updateTimer();
   $('recBtn').textContent = 'REC';
   $('recBtn').classList.remove('recording');
-  mediaRecorder.stop();
+  if (blob) useAudio(blob, 'Microphone recording');
+  else setStatus('Nobody spoke, so the recording was cancelled.');
 }
 
 function updateTimer() {
-  const s = Math.min((performance.now() - recStart) / 1000, MAX_SECONDS);
-  $('elapsed').textContent = s.toFixed(1);
-  $('progress').style.width = (s / MAX_SECONDS * 100) + '%';
+  $('elapsed').textContent = rec.elapsed.toFixed(1);
+  $('progress').style.width = (rec.elapsed / MAX_SECONDS * 100) + '%';
 }
-
-function tick() {
-  updateTimer();
-  measureSpeech(50);
-  // Not held down (a button tap or a click): give up if nobody has spoken by NO_SPEECH_MS.
-  if (!buttonHeld && !heardSpeech() && performance.now() - recStart >= NO_SPEECH_MS) stopRecording();
-}
-
-// ---------- Speech detection ----------
-// Adds up the time the mic level is above SPEECH_DB, so silent recordings are dropped.
-let speechSource = null, analyser = null, levels, speechMs = 0;
-function listenForSpeech(stream) {
-  speechSource?.disconnect();
-  speechMs = 0;
-  analyser = null;
-  if (ctx().state !== 'running') return;   // can't measure, so the recording counts as speech
-  analyser = ctx().createAnalyser();
-  analyser.fftSize = 2048;
-  levels = new Float32Array(analyser.fftSize);
-  speechSource = ctx().createMediaStreamSource(stream);
-  speechSource.connect(analyser);
-}
-function measureSpeech(ms) {
-  if (!analyser) return;
-  analyser.getFloatTimeDomainData(levels);
-  let sum = 0;
-  for (const v of levels) sum += v * v;
-  if (10 * Math.log10(sum / levels.length) > SPEECH_DB) speechMs += ms;
-}
-const heardSpeech = () => !analyser || speechMs >= SPEECH_MIN_MS;
 
 // ---------- Upload ----------
 $('pickBtn').onclick = () => $('file').click();
@@ -308,114 +230,130 @@ drop.ondrop = e => {
   if (f) useAudio(f, f.name);
 };
 
-// Decode any format the browser understands, keep the first 15 s, re-encode as mono WAV.
 async function useAudio(blob, label) {
-  let buf;
+  let a;
   try {
-    buf = await ctx().decodeAudioData(await blob.arrayBuffer());
+    a = await toWav(blob);
   } catch (e) {
     setStatus('Could not read that audio file: ' + e.message, true);
     return;
   }
-  const n = Math.min(buf.length, buf.sampleRate * MAX_SECONDS);
-  const mono = new Float32Array(n);
-  for (let c = 0; c < buf.numberOfChannels; c++) {
-    const d = buf.getChannelData(c);
-    for (let i = 0; i < n; i++) mono[i] += d[i] / buf.numberOfChannels;
-  }
-  inputWav = encodeWav(mono, buf.sampleRate);
-  $('fileName').textContent = label + ' · ' + (n / buf.sampleRate).toFixed(1) + ' s' + (buf.length > n ? ' (trimmed to 15 s)' : '');
-  setTrack('Orig', inputWav);
+  showInput(a.wav, label + ' · ' + a.seconds.toFixed(1) + ' s' + (a.trimmed ? ' (trimmed to 15 s)' : ''));
+  if (engineReady) frenchify(false);
+  else setStatus('Audio ready. Waiting for the engine to load…');
+}
+
+function showInput(wav, label) {
+  inputWav = wav;
+  $('fileName').textContent = label;
+  setTrack('Orig', wav);
   $('results').classList.remove('hidden');
   $('text').value = '';
   $('phonemes').textContent = '';
   setTrack('Fr', null); setTrack('Guide', null); setTrack('Clean', null);
   $('tClean').classList.add('hidden');
   updateGo();
-  if (engineReady) frenchify(false);
-  else setStatus('Audio ready. Waiting for the engine to load…');
 }
 
 // ---------- Engine call ----------
 $('goBtn').onclick = () => frenchify(false);
 $('redoBtn').onclick = () => frenchify(true);
 $('speed').oninput = () => $('speedVal').textContent = (+$('speed').value).toFixed(2);
-// The noise level is set once on site, so remember it across reloads.
-try { if (localStorage.getItem('clean')) $('clean').value = localStorage.getItem('clean'); } catch {}
-$('clean').onchange = () => { try { localStorage.setItem('clean', $('clean').value); } catch {} };
+// The round display uses these settings for visitors, so they are kept across reloads.
+for (const k of Object.keys(SETTINGS)) {
+  $(k).value = setting(k);
+  $(k).addEventListener('input', () => { try { localStorage.setItem(k, $(k).value); } catch {} });
+}
+$('speed').oninput();
 
 async function frenchify(useText) {
   if (!inputWav || busy) return;
-  busy = true; updateGo(); syncLights();
+  busy = true; updateGo();
   setStatus('Transcribing, adding the accent and converting the voice…');
   const t0 = performance.now();
-  const form = new FormData();
-  form.append('audio', inputWav, 'input.wav');
-  for (const k of ['strength', 'voice', 'speed', 'steps', 'clean']) form.append(k, $(k).value);
-  if (useText) form.append('text', $('text').value);
   try {
-    const res = await fetch('/api/convert', { method: 'POST', body: form });
-    const r = await res.json();
-    if (!res.ok) throw new Error(r.error || res.statusText);
-    $('text').value = r.text;
-    $('phonemes').textContent = r.phonemes;
-    setTrack('Fr', b64Blob(r.audio));
-    setTrack('Guide', b64Blob(r.guide));
-    setTrack('Clean', r.cleaned ? b64Blob(r.cleaned) : null);
-    $('tClean').classList.toggle('hidden', !r.cleaned);
-    $('timings').textContent = (r.cleaned ? `clean ${r.timings.clean}s · ` : '') + `transcribe ${r.timings.transcribe}s · accent ${r.timings.tts}s · voice ${r.timings.convert}s`;
+    showResult(await convert(inputWav, useText ? $('text').value : ''));
     setStatus('Voilà! Done in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s.');
     $('aFr').play();
   } catch (e) {
     setStatus(e.message, true);
   } finally {
-    busy = false; updateGo(); syncLights();
+    busy = false; updateGo();
   }
 }
 
-// ---------- Pyramid lights ----------
-// The Pro Micro shows the app state on its LEDs. The page sends one letter per change over
-// USB serial: I idle, R recording, W working, P playing the result, C cancelled (no speech).
-// Chrome asks once which port to allow (button under the title), then reconnects by itself.
-const LIGHTS_VENDOR = 0x1B4F;   // SparkFun Pro Micro
-let lightsPort = null, lightsWriter = null;
-
-function lights(code) {
-  lightsWriter?.write(new TextEncoder().encode(code)).catch(() => {});
+function showResult(r) {
+  $('text').value = r.text;
+  $('phonemes').textContent = r.phonemes;
+  setTrack('Fr', b64Blob(r.audio));
+  setTrack('Guide', b64Blob(r.guide));
+  setTrack('Clean', r.cleaned ? b64Blob(r.cleaned) : null);
+  $('tClean').classList.toggle('hidden', !r.cleaned);
+  $('timings').textContent = (r.cleaned ? `clean ${r.timings.clean}s · ` : '') + `transcribe ${r.timings.transcribe}s · accent ${r.timings.tts}s · voice ${r.timings.convert}s`;
 }
-function syncLights() {
-  lights(isRecording() ? 'R' : busy ? 'W' : !$('aFr').paused ? 'P' : 'I');
-}
-$('aFr').onplay = $('aFr').onpause = syncLights;
 
-async function connectLights(port) {
-  if (lightsWriter || port.getInfo().usbVendorId !== LIGHTS_VENDOR) return;
+// ---------- Round display ----------
+// Visitors use kiosk.html on the round panel. It reports its state and each visitor run here;
+// this page passes on the physical button and the permission for the pyramid lights.
+const KIOSK_STATES = {
+  waiting: 'waiting for the engine', idle: 'ready', recording: 'recording', working: 'processing',
+  playing: 'playing the result', cancelled: 'nobody spoke', error: 'error',
+};
+let kioskSeenAt = 0;
+
+channel.onmessage = ({ data: m }) => {
+  if (m.type === 'kiosk') showKiosk(m);
+  else if (m.type === 'run') showVisitorRun(m);
+  else if (m.type === 'log') setStatus('Round display: ' + m.message, true);
+  else if (m.type === 'play') $('aFr').play().catch(() => {});   // the round display's window may not play sound yet
+};
+channel.postMessage({ type: 'hello' });
+
+function showKiosk(m) {
+  kioskSeenAt = m.state === 'closed' ? 0 : performance.now();
+  if (m.state === 'recording') document.querySelectorAll('audio').forEach(a => a.pause());   // keep it out of the visitor's recording
+  $('kiosk').textContent = kioskSeenAt ? 'Round display: ' + KIOSK_STATES[m.state] : 'Round display not open';
+  $('kiosk').className = !kioskSeenAt ? 'pill off' : m.state === 'error' ? 'pill error' : m.state === 'waiting' ? 'pill' : 'pill ready';
+  $('lightsBtn').classList.toggle('hidden', !kioskSeenAt || m.lights || !('serial' in navigator));
+}
+setInterval(() => kioskSeenAt && performance.now() - kioskSeenAt > 5000 && showKiosk({ state: 'closed' }), 1000);
+
+function showVisitorRun(m) {
+  if (!m.input) return setStatus('Could not read the visitor recording: ' + m.error, true);
+  showInput(m.input, `Visitor recording · ${m.seconds.toFixed(1)} s`);
+  if (m.error) return setStatus('Visitor run failed: ' + m.error, true);
+  showResult(m.result);
+  setStatus(`Visitor run done in ${m.total.toFixed(1)} s.`);
+}
+
+// Physical button: the Pro Micro holds F13 while it is pressed (see arduino/PyramidLights).
+// It works the round display, also while this window has the focus.
+for (const type of ['keydown', 'keyup']) {
+  document.addEventListener(type, e => {
+    if (e.code !== 'F13') return;
+    e.preventDefault();
+    if (!e.repeat) channel.postMessage({ type: 'button', down: type === 'keydown' });
+  });
+}
+
+// Opens the round display on the square screen. The browser asks once to let this page place windows;
+// without that the window opens here, to be dragged onto the round panel.
+$('kioskBtn').onclick = async () => {
+  let features = 'popup,width=540,height=540', placed = false;
   try {
-    await port.open({ baudRate: 115200 });
-    await port.setSignals({ dataTerminalReady: true });   // without it the board only follows the button
-    lightsPort = port;
-    lightsWriter = port.writable.getWriter();
-    $('lightsBtn').classList.add('hidden');
-    syncLights();
-  } catch (e) {
-    setStatus('Could not connect the pyramid lights: ' + e.message, true);
-  }
-}
-if ('serial' in navigator) {
-  navigator.serial.getPorts().then(ports => {
-    const port = ports.find(p => p.getInfo().usbVendorId === LIGHTS_VENDOR);
-    port ? connectLights(port) : $('lightsBtn').classList.remove('hidden');
-  });
-  navigator.serial.addEventListener('connect', e => connectLights(e.target));   // board plugged back in
-  navigator.serial.addEventListener('disconnect', e => {
-    if (e.target !== lightsPort) return;
-    lightsWriter?.releaseLock();
-    lightsWriter = null;
-    lightsPort.close().catch(() => {});
-  });
-  $('lightsBtn').onclick = () =>
-    navigator.serial.requestPort({ filters: [{ usbVendorId: LIGHTS_VENDOR }] }).then(connectLights, () => {});
-}
+    const { screens } = await getScreenDetails();
+    const round = screens.find(s => s.width === s.height) ?? screens.find(s => !s.isPrimary);
+    if (round) features = `popup,left=${round.availLeft},top=${round.availTop},width=${round.availWidth},height=${round.availHeight}`;
+    placed = !!round;
+  } catch {}
+  if (!window.open('/kiosk', 'kiosk', features)) setStatus('The browser blocked the round display window. Click "Open round display" again.', true);
+  else setStatus((placed ? 'Click the round display' : 'Drag the round display window onto the round panel, then click it') +
+                 ' once to make it full screen and let it play sound.');
+};
+
+// The browser asks once which serial port is the lights; the round display then connects to it.
+$('lightsBtn').onclick = () =>
+  navigator.serial.requestPort({ filters: [{ usbVendorId: LIGHTS_VENDOR }] }).then(() => channel.postMessage({ type: 'lights' }), () => {});
 
 // ---------- Helpers ----------
 const trackUrls = {};
@@ -425,23 +363,6 @@ function setTrack(name, blob) {
   $('a' + name).src = trackUrls[name];
   $('d' + name).href = trackUrls[name] || '#';
   $('d' + name).style.visibility = blob ? 'visible' : 'hidden';
-}
-
-function b64Blob(b64) {
-  const bin = atob(b64), bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: 'audio/wav' });
-}
-
-function encodeWav(d, sr) {
-  const view = new DataView(new ArrayBuffer(44 + d.length * 2));
-  const w = (o, s) => [...s].forEach((c, i) => view.setUint8(o + i, c.charCodeAt(0)));
-  w(0, 'RIFF'); view.setUint32(4, 36 + d.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
-  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-  view.setUint32(24, sr, true); view.setUint32(28, sr * 2, true); view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true); w(36, 'data'); view.setUint32(40, d.length * 2, true);
-  for (let i = 0; i < d.length; i++) view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, d[i])) * 0x7fff, true);
-  return new Blob([view], { type: 'audio/wav' });
 }
 </script>
 </body>
