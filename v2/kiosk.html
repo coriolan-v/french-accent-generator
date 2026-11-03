@@ -33,7 +33,10 @@
   svg { --font: "Segoe UI", system-ui, sans-serif; --size: 1; --hint-size: 1; --weight: 900; --hint-weight: 600;
         font-family: var(--font); font-synthesis: none; }
   .title { fill: #fff; font-size: calc(96px * var(--size)); font-weight: var(--weight); letter-spacing: 8px; text-anchor: middle; }
-  .hint { fill: var(--hint); font-size: calc(40px * var(--hint-size)); font-weight: var(--hint-weight); text-anchor: middle; }
+  /* Two copies of the title, on opposite sides of a circle around the button, turning slowly. */
+  #titles { transform-origin: 540px 540px; animation: spin 60s linear infinite; }
+  /* The instructions curve along the top of the button, above the mic. */
+  .hint { fill: #fff; font-size: calc(34px * var(--hint-size)); font-weight: var(--hint-weight); text-anchor: middle; }
 
   #button { cursor: pointer; }
   #face { fill: var(--grey); transition: fill .3s; }
@@ -56,8 +59,10 @@
 <!-- Drawn for the 1080 × 1080 round panel: only the circle is visible. -->
 <svg viewBox="0 0 1080 1080">
   <defs>
-    <path id="topArc" d="M 130 540 A 410 410 0 0 1 950 540"/>
-    <path id="bottomArc" d="M 92 540 A 448 448 0 0 0 988 540"/>
+    <!-- Full circle clockwise from the left, so 25% is the top and 75% the bottom. -->
+    <path id="titleCircle" d="M 160 540 A 380 380 0 1 1 920 540 A 380 380 0 1 1 160 540"/>
+    <!-- Inside the button's edge, from lower left over the top to lower right (240°). -->
+    <path id="hintArc" d="M 351.2 649 A 218 218 0 1 1 728.8 649"/>
     <mask id="ringMask">
       <circle id="reveal" cx="540" cy="540" r="512" pathLength="100" transform="rotate(-90 540 540)"/>
     </mask>
@@ -74,8 +79,10 @@
     </g>
   </g>
 
-  <text class="title"><textPath href="#topArc" startOffset="50%">FRENCHIFY ME</textPath></text>
-  <text class="hint"><textPath href="#bottomArc" startOffset="50%" id="hint"></textPath></text>
+  <g id="titles">
+    <text class="title"><textPath href="#titleCircle" startOffset="25%">FRENCHIFY ME</textPath></text>
+    <text class="title"><textPath href="#titleCircle" startOffset="75%">FRENCHIFY ME</textPath></text>
+  </g>
 
   <g id="button">
     <circle id="halo" cx="540" cy="540" r="260"/>
@@ -95,6 +102,7 @@
       <path d="M -30 118 C -10 130 -4 150 0 182 C 4 150 10 130 30 118 Z"/>
     </g>
     <text id="big" x="540" y="540"></text>
+    <text class="hint"><textPath href="#hintArc" startOffset="50%" id="hint"></textPath></text>
   </g>
 </svg>
 
@@ -319,6 +327,7 @@ channel.onmessage = ({ data: m }) => {
 setInterval(report, 2000);
 addEventListener('pagehide', () => channel.postMessage({ type: 'kiosk', state: 'closed' }));
 
+window.focus();   // take the keyboard, so the button's F13 lands here
 setState('waiting');
 waitForEngine();
 findLights();

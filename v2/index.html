@@ -375,7 +375,9 @@ for (const type of ['keydown', 'keyup']) {
 
 // Opens the round display on the square screen. The browser asks once to let this page place windows;
 // without that the window opens here, to be dragged onto the round panel.
-$('kioskBtn').onclick = async () => {
+// It also opens by itself when this page loads, unless it is already open. That needs pop-ups allowed for this
+// site; the window then has the keyboard focus, so the button starts a recording straight away.
+async function openKiosk(auto) {
   let features = 'popup,width=540,height=540', placed = false;
   try {
     const { screens } = await getScreenDetails();
@@ -383,10 +385,17 @@ $('kioskBtn').onclick = async () => {
     if (round) features = `popup,left=${round.availLeft},top=${round.availTop},width=${round.availWidth},height=${round.availHeight}`;
     placed = !!round;
   } catch {}
-  if (!window.open('/kiosk', 'kiosk', features)) setStatus('The browser blocked the round display window. Click "Open round display" again.', true);
-  else setStatus((placed ? 'Click the round display' : 'Drag the round display window onto the round panel, then click it') +
-                 ' once to make it full screen and let it play sound.');
-};
+  const win = window.open('/kiosk', 'kiosk', features);
+  if (!win) return setStatus(auto
+    ? 'The browser blocked the round display. Allow pop-ups for this site (icon at the right of the address bar) so it opens by itself, or click "Open round display".'
+    : 'The browser blocked the round display window. Click "Open round display" again.', true);
+  win.focus();
+  setStatus(placed ? 'Round display open: press the button to record (the first press also makes it full screen).'
+                   : 'Drag the round display window onto the round panel, then press the button or click it to make it full screen.');
+}
+$('kioskBtn').onclick = () => openKiosk(false);
+// A round display that is already open answers the hello above within a moment.
+setTimeout(() => kioskSeenAt || openKiosk(true), 1500);
 
 // ---------- Pyramid lights ----------
 // The browser asks once which serial port is the lights; the round display then connects to it.

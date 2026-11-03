@@ -1,0 +1,38 @@
+# French accent engine (server.py). Setup, from v2/engine:
+#   git clone --depth 1 https://github.com/Plachtaa/seed-vc.git seed-vc
+#   uv venv --python 3.11 .venv
+#   uv pip install --python .venv\Scripts\python.exe -r requirements.txt
+#   uv pip install --python .venv\Scripts\python.exe --no-deps deepfilternet==0.5.6 deepfilterlib==0.5.6 appdirs==1.4.4
+# eSpeak NG (winget install eSpeak-NG.eSpeak-NG) is used by Kokoro for words missing from its dictionary.
+
+# CUDA 12.8 wheels: required for RTX 50-series (Blackwell) GPUs.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.7.1+cu128
+torchaudio==2.7.1+cu128
+
+# Server
+fastapi
+uvicorn
+python-multipart
+requests
+
+# Pipeline: Whisper ASR, Kokoro TTS, audio I/O
+transformers==4.46.3
+accelerate
+kokoro>=0.9.4
+librosa==0.10.2
+soundfile
+numpy
+scipy
+
+# Seed-VC (engine/seed-vc) model code
+huggingface-hub>=0.28.1
+munch==4.0.0
+einops==0.8.0
+hydra-core==1.3.2
+omegaconf
+pyyaml
+matplotlib
+descript-audio-codec==1.0.0
+hf_xet
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
