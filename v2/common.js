@@ -7,14 +7,43 @@ const TICK_MS = 50;
 const LIGHTS_VENDOR = 0x1B4F;   // SparkFun Pro Micro (see arduino/PyramidLights)
 
 // Accent settings: chosen on the operator page, used for visitors too, kept across reloads.
-const SETTINGS = { strength: '3', voice: 'ff_siwis', speed: '0.9', steps: '25', clean: '0' };
+const SETTINGS = { strength: '3', voice: 'ff_siwis', speed: '1', steps: '50', clean: '2' };
+// Also kept: the French flag on the pyramid lights, as stretches along the strip from its first LED,
+// then moved along the strip by flagShift LEDs.
+// And the font of the round display, from DISPLAY_FONTS.
+const DEFAULTS = { ...SETTINGS, flagLayout: '0 blue, 27 white, 27 red, 24 white, 26 blue', flagShift: '0', kioskFont: 'Segoe UI' };
+
+// Fonts for the round display. The files and their licences are in fonts/. size scales the title and the
+// big text in the button (keep the title clear of the ring), hintSize the line at the bottom (default: size);
+// weight and hint are their font weights.
+const DISPLAY_FONTS = {
+  'Segoe UI': { family: '"Segoe UI", system-ui, sans-serif', weight: 900, hint: 600, size: 1 },
+  'Rye': { file: 'Rye-Regular.ttf', size: 1 },
+  'Smokum': { file: 'Smokum-Regular.ttf', size: 1.04, hintSize: 1.25 },
+  'Sancreek': { file: 'Sancreek-Regular.ttf', size: 1 },
+  'Campanile': { file: 'Campanile.ttf', size: 0.97, hintSize: 1.2 },
+  'Federant': { file: 'Federant-Regular.ttf', size: 1 },
+};
 function setting(k) {
-  try { return localStorage.getItem(k) ?? SETTINGS[k]; } catch { return SETTINGS[k]; }
+  try { return localStorage.getItem(k) ?? DEFAULTS[k]; } catch { return DEFAULTS[k]; }
+}
+
+const LED_COUNT = 103;   // LEDs around the pyramid base, as in arduino/PyramidLights
+const FLAG_CODES = { blue: 'b', white: 'w', red: 'r', off: '-' };
+// The board paints stretches from LED 0, so the shift is done here, wrapping around the base:
+// "25 red" shifted by 90 becomes "F12r78-13r;" (see arduino/PyramidLights).
+function flagCommand(layout, shift) {
+  const leds = Array(LED_COUNT).fill('-');
+  let at = Math.round(+shift || 0);
+  for (const [, n, colour] of layout.matchAll(/(\d+)\s*(blue|white|red|off)/gi)) {
+    for (let i = 0; i < Math.min(+n, LED_COUNT); i++) leds[((at++ % LED_COUNT) + LED_COUNT) % LED_COUNT] = FLAG_CODES[colour.toLowerCase()];
+  }
+  return 'F' + leds.join('').replace(/(.)\1*/g, run => run.length + run[0]) + ';';
 }
 
 // The two pages talk over this channel, so they must be open in the same browser.
 //   round display -> operator: kiosk {state, lights}, run {input, seconds, result | error, total}, play, log {message}
-//   operator -> round display: hello, button {down}, lights
+//   operator -> round display: hello, button {down}, lights {flagLayout?, flagShift?} (permission or layout changed), lightsPreview {code}
 const channel = new BroadcastChannel('frenchify');
 
 const $ = id => document.getElementById(id);

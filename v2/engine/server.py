@@ -15,6 +15,7 @@ import soundfile as sf  # noqa: E402
 import uvicorn  # noqa: E402
 from fastapi import FastAPI, File, Form, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAX_SECONDS = 15
@@ -59,6 +60,9 @@ def kiosk():
 @app.get('/common.js')
 def common_js():
     return page_file('common.js', 'text/javascript')
+
+
+app.mount('/fonts', StaticFiles(directory=os.path.join(ROOT, 'fonts')), name='fonts')
 
 
 @app.get('/api/health')

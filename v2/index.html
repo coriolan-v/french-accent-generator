@@ -55,7 +55,8 @@
   .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
   .settings label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   select, input[type=range] { width: 100%; }
-  select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--field); color: var(--ink); }
+  select, input[type=text], input[type=number] { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--field); color: var(--ink); }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
 
   .track { display: grid; grid-template-columns: 170px 1fr auto; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
   .track:first-of-type { border-top: none; }
@@ -118,21 +119,21 @@
           <option value="af_heart">Heart (female)</option>
         </select>
       </label>
-      <label>Speed <span id="speedVal">0.90</span>
-        <input type="range" id="speed" min="0.6" max="1.3" step="0.05" value="0.9">
+      <label>Speed <span id="speedVal">1.00</span>
+        <input type="range" id="speed" min="0.6" max="1.3" step="0.05" value="1">
       </label>
       <label>Quality
         <select id="steps">
           <option value="10">Fast</option>
-          <option value="25" selected>Good</option>
-          <option value="50">Best (slower)</option>
+          <option value="25">Good</option>
+          <option value="50" selected>Best (slower)</option>
         </select>
       </label>
       <label>Noise cleaning
         <select id="clean">
-          <option value="0" selected>Off</option>
+          <option value="0">Off</option>
           <option value="1">Light</option>
-          <option value="2">Medium</option>
+          <option value="2" selected>Medium</option>
           <option value="3">Strong</option>
         </select>
       </label>
@@ -159,6 +160,39 @@
         <span class="small" id="timings"></span>
       </div>
     </div>
+  </section>
+
+  <section class="card">
+    <h2>4 · Round display</h2>
+    <div class="settings">
+      <label>Font (changes on the round display straight away)
+        <select id="kioskFont"></select>
+      </label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>5 · Pyramid lights</h2>
+    <div class="row" style="align-items: flex-end; margin-top: 0">
+      <label class="field" style="flex: 1">French flag along the strip, from its first LED (it shows on the LEDs as you type)
+        <input type="text" id="flagLayout" spellcheck="false">
+      </label>
+      <label class="field">Shift (LEDs)
+        <input type="number" id="flagShift" step="1" style="width: 90px">
+      </label>
+    </div>
+    <div class="row">
+      <button class="btn" data-lights="N" disabled>LED numbers</button>
+      <button class="btn" data-lights="P" disabled>Flag</button>
+      <button class="btn" data-lights="R" disabled>Recording</button>
+      <button class="btn" data-lights="W" disabled>Processing</button>
+      <button class="btn" data-lights="C" disabled>Nobody spoke</button>
+      <button class="btn" data-lights="" disabled>Back to live</button>
+    </div>
+    <p class="small">"LED numbers" lights the first LED green and every 10th red. Count from the green LED along the strip
+      to each corner, then list the sides in that order with blue, white, red or off, e.g. "27 off, 25 blue, 26 white, 25 red".
+      Shift moves the whole flag further along the strip, wrapping around the base; a negative shift goes the other way.
+      The buttons need the round display open with the lights connected.</p>
   </section>
 </main>
 
@@ -259,8 +293,9 @@ function showInput(wav, label) {
 $('goBtn').onclick = () => frenchify(false);
 $('redoBtn').onclick = () => frenchify(true);
 $('speed').oninput = () => $('speedVal').textContent = (+$('speed').value).toFixed(2);
-// The round display uses these settings for visitors, so they are kept across reloads.
-for (const k of Object.keys(SETTINGS)) {
+// The round display uses these settings (and its font and the flag layout), so they are kept across reloads.
+for (const name of Object.keys(DISPLAY_FONTS)) $('kioskFont').add(new Option(name));
+for (const k of Object.keys(DEFAULTS)) {
   $(k).value = setting(k);
   $(k).addEventListener('input', () => { try { localStorage.setItem(k, $(k).value); } catch {} });
 }
@@ -312,9 +347,11 @@ channel.postMessage({ type: 'hello' });
 function showKiosk(m) {
   kioskSeenAt = m.state === 'closed' ? 0 : performance.now();
   if (m.state === 'recording') document.querySelectorAll('audio').forEach(a => a.pause());   // keep it out of the visitor's recording
-  $('kiosk').textContent = kioskSeenAt ? 'Round display: ' + KIOSK_STATES[m.state] : 'Round display not open';
+  const noLights = !!kioskSeenAt && !m.lights && 'serial' in navigator;
+  $('kiosk').textContent = kioskSeenAt ? 'Round display: ' + KIOSK_STATES[m.state] + (noLights ? ' (lights not connected)' : '') : 'Round display not open';
   $('kiosk').className = !kioskSeenAt ? 'pill off' : m.state === 'error' ? 'pill error' : m.state === 'waiting' ? 'pill' : 'pill ready';
-  $('lightsBtn').classList.toggle('hidden', !kioskSeenAt || m.lights || !('serial' in navigator));
+  $('lightsBtn').classList.toggle('hidden', !noLights);
+  document.querySelectorAll('[data-lights]').forEach(b => b.disabled = !(kioskSeenAt && m.lights));
 }
 setInterval(() => kioskSeenAt && performance.now() - kioskSeenAt > 5000 && showKiosk({ state: 'closed' }), 1000);
 
@@ -351,9 +388,22 @@ $('kioskBtn').onclick = async () => {
                  ' once to make it full screen and let it play sound.');
 };
 
+// ---------- Pyramid lights ----------
 // The browser asks once which serial port is the lights; the round display then connects to it.
 $('lightsBtn').onclick = () =>
   navigator.serial.requestPort({ filters: [{ usbVendorId: LIGHTS_VENDOR }] }).then(() => channel.postMessage({ type: 'lights' }), () => {});
+
+// Previews go through the round display, which holds the board's serial port. They last until the
+// next visitor or "Back to live". The flag layout is saved with the settings above.
+const lightsPreview = code => channel.postMessage({ type: 'lightsPreview', code });
+document.querySelectorAll('[data-lights]').forEach(b => b.onclick = () => lightsPreview(b.dataset.lights));
+for (const id of ['flagLayout', 'flagShift']) {
+  $(id).addEventListener('input', () => {
+    // Saved too, but that reaches other windows later than this message.
+    channel.postMessage({ type: 'lights', flagLayout: $('flagLayout').value, flagShift: $('flagShift').value });
+    lightsPreview('P');
+  });
+}
 
 // ---------- Helpers ----------
 const trackUrls = {};

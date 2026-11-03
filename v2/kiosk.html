@@ -16,15 +16,24 @@
   .flag-white { stroke: var(--white); }
   .flag-blue { stroke: var(--blue); }
   #reveal { fill: none; stroke: #fff; stroke-width: 40; stroke-dasharray: 0 100; }
-  #redRing, #flagRing { display: none; }
-  [data-state=recording] #redRing, [data-state=working] #flagRing, [data-state=playing] #flagRing { display: inline; }
+  #redRing { display: none; }
+  [data-state=recording] #redRing { display: inline; }
+  #flagRing { opacity: 0; transform-origin: 540px 540px; }
+  [data-state=working] #flagRing, [data-state=playing] #flagRing { opacity: 1; }
   [data-state=playing] #reveal { transition: stroke-dasharray .4s ease-out; }
-  [data-state=playing] #flagRing { animation: spin 8s linear infinite; }
-  #flagRing { transform-origin: 540px 540px; }
+  [data-state=playing] #flagRing, [data-state=idle] #flagRing { animation: spin 8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .title { fill: #fff; font-size: 96px; font-weight: 900; letter-spacing: 8px; text-anchor: middle; }
-  .hint { fill: var(--hint); font-size: 40px; font-weight: 600; text-anchor: middle; }
+  /* Going idle crossfades: whatever was showing fades out (setState leaves it in place) as the mic fades in.
+     The pyramid lights crossfade over the same time (FADE_MS in arduino/PyramidLights). */
+  [data-state=idle] :is(#flagRing, #big, #mic, #halo) { transition: opacity 1.5s; }
+  [data-state=idle] #face { transition: fill 1.5s; }
+
+  /* The font comes from the operator page (see applyFont). */
+  svg { --font: "Segoe UI", system-ui, sans-serif; --size: 1; --hint-size: 1; --weight: 900; --hint-weight: 600;
+        font-family: var(--font); font-synthesis: none; }
+  .title { fill: #fff; font-size: calc(96px * var(--size)); font-weight: var(--weight); letter-spacing: 8px; text-anchor: middle; }
+  .hint { fill: var(--hint); font-size: calc(40px * var(--hint-size)); font-weight: var(--hint-weight); text-anchor: middle; }
 
   #button { cursor: pointer; }
   #face { fill: var(--grey); transition: fill .3s; }
@@ -34,12 +43,13 @@
   [data-state=idle] #halo { opacity: .25; animation: breathe 3s ease-in-out infinite; }
   [data-state=recording] #halo { opacity: .3; }
   @keyframes breathe { 50% { transform: scale(1.08); } }
-  #mic { display: none; }
-  [data-state=waiting] #mic, [data-state=idle] #mic { display: inline; }
+  #mic { opacity: 0; }
+  [data-state=idle] #mic { opacity: 1; }
   [data-state=waiting] #mic { opacity: .4; }
-  #big { fill: #fff; font-size: 88px; font-weight: 900; text-anchor: middle; dominant-baseline: central; }
-  [data-state=recording] #big { font-size: 240px; }
-  [data-state=working] #big { font-size: 64px; }
+  #big { fill: #fff; font-size: calc(88px * var(--size)); font-weight: var(--weight); text-anchor: middle; dominant-baseline: central; }
+  [data-state=idle] #big { opacity: 0; }
+  [data-state=recording] #big { font-size: calc(240px * var(--size)); }
+  [data-state=working] #big { font-size: calc(64px * var(--size)); }
 </style>
 </head>
 <body data-state="waiting">
@@ -70,9 +80,19 @@
   <g id="button">
     <circle id="halo" cx="540" cy="540" r="260"/>
     <circle id="face" cx="540" cy="540" r="260"/>
-    <g id="mic" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round">
-      <rect x="495" y="400" width="90" height="170" rx="45" fill="#fff" stroke="none"/>
-      <path d="M 440 520 A 100 100 0 0 0 640 520 M 540 620 V 670 M 490 670 H 590"/>
+    <!-- A microphone drawn as a fleur-de-lys: the head is the middle petal (the slots show the button
+         through), the holder curls out into the side petals, and the stand is the band and the tail. -->
+    <g id="mic" transform="translate(540 540)" fill="#fff">
+      <path fill-rule="evenodd" d="M 0 -195 C 30 -165 46 -128 46 -88 V -6 A 46 46 0 0 1 -46 -6 V -88 C -46 -128 -30 -165 0 -195 Z
+        M -22 -85 H 22 A 5 5 0 0 1 22 -75 H -22 A 5 5 0 0 1 -22 -85 Z
+        M -22 -57 H 22 A 5 5 0 0 1 22 -47 H -22 A 5 5 0 0 1 -22 -57 Z
+        M -22 -29 H 22 A 5 5 0 0 1 22 -19 H -22 A 5 5 0 0 1 -22 -29 Z"/>
+      <path d="M -79 0 A 79 79 0 0 0 79 0 C 79 -66 118 -108 158 -92 C 186 -80 186 -44 160 -14
+        C 168 -44 162 -66 146 -72 C 120 -82 97 -54 97 0 A 97 97 0 0 1 -97 0
+        C -97 -54 -120 -82 -146 -72 C -162 -66 -168 -44 -160 -14
+        C -186 -44 -186 -80 -158 -92 C -118 -108 -79 -66 -79 0 Z"/>
+      <rect x="-110" y="92" width="220" height="26" rx="8"/>
+      <path d="M -30 118 C -10 130 -4 150 0 182 C 4 150 10 130 30 118 Z"/>
     </g>
     <text id="big" x="540" y="540"></text>
   </g>
@@ -81,6 +101,7 @@
 <script src="/common.js"></script>
 <script>
 const TAP_MS = 1000;   // button released sooner than this: hands-free message instead of hold-to-talk
+const HOLD_MS = 4000;  // "Voilà !" and the flag (on screen and on the pyramid) stay this long after the result has played
 const HINTS = {
   waiting: 'Warming up, one moment…',
   idle: 'Press the button and speak English',
@@ -102,8 +123,10 @@ function setState(s) {
   state = s;
   document.body.dataset.state = s;
   $('hint').textContent = HINTS[s];
-  $('big').textContent = BIG[s] ?? '';
-  setRing(s === 'playing' ? 1 : 0);
+  if (s !== 'idle') {   // idle fades out the last text and ring instead (see the CSS)
+    $('big').textContent = BIG[s] ?? '';
+    setRing(s === 'playing' ? 1 : 0);
+  }
   syncLights();
   report();
 }
@@ -195,11 +218,11 @@ function play(blob) {
     // The browser blocks sound in a window nobody has clicked or typed in yet, so the operator page
     // plays it. This window can still read the length, to go back to idle when it would have ended.
     channel.postMessage({ type: 'play' });
-    const done = () => state === 'playing' && after((player.duration + 1) * 1000, () => setState('idle'));
+    const done = () => state === 'playing' && after(player.duration * 1000 + HOLD_MS, () => setState('idle'));
     isNaN(player.duration) ? player.addEventListener('loadedmetadata', done, { once: true }) : done();
   });
 }
-player.onended = () => state === 'playing' && setState('idle');
+player.onended = () => state === 'playing' && after(HOLD_MS, () => setState('idle'));
 
 // ---------- Progress ring ----------
 // The engine reports no progress, so the ring follows an estimate learnt from earlier runs
@@ -229,13 +252,13 @@ function animate() {
 
 // ---------- Pyramid lights ----------
 // The Pro Micro shows the state on its LEDs. This page sends one letter per change over USB serial:
-// I idle, R recording, W working, P playing the result, C cancelled (no speech).
-// The operator page asks once which port to allow; this page then connects by itself.
+// I idle, R recording, W working, P playing the result (the flag), C cancelled (no speech), and
+// the flag layout. The operator page asks once which port to allow; this page then connects by itself.
 let lightsPort = null, lightsWriter = null;
 
-function syncLights() {
-  lightsWriter?.write(new TextEncoder().encode(LIGHT_CODES[state] ?? 'I')).catch(() => {});
-}
+function sendLights(text) { lightsWriter?.write(new TextEncoder().encode(text)).catch(() => {}); }
+function syncLights() { sendLights(LIGHT_CODES[state] ?? 'I'); }
+function sendFlag(layout = setting('flagLayout'), shift = setting('flagShift')) { sendLights(flagCommand(layout, shift)); }
 async function connectLights(port) {
   if (lightsWriter || port.getInfo().usbVendorId !== LIGHTS_VENDOR) return;
   try {
@@ -243,6 +266,7 @@ async function connectLights(port) {
     await port.setSignals({ dataTerminalReady: true });   // without it the board only follows the button
     lightsPort = port;
     lightsWriter = port.writable.getWriter();
+    sendFlag();
     syncLights();
     report();
   } catch (e) {
@@ -266,12 +290,30 @@ if ('serial' in navigator) {
   });
 }
 
+// ---------- Font ----------
+// Chosen on the operator page; a font file only downloads once it is used.
+for (const [name, f] of Object.entries(DISPLAY_FONTS)) {
+  if (f.file) document.fonts.add(new FontFace(name, `url(/fonts/${f.file})`));
+}
+function applyFont() {
+  const name = DISPLAY_FONTS[setting('kioskFont')] ? setting('kioskFont') : DEFAULTS.kioskFont, f = DISPLAY_FONTS[name];
+  const s = document.querySelector('svg').style;
+  s.setProperty('--font', f.family ?? `"${name}"`);
+  s.setProperty('--size', f.size);
+  s.setProperty('--hint-size', f.hintSize ?? f.size);
+  s.setProperty('--weight', f.weight ?? 400);
+  s.setProperty('--hint-weight', f.hint ?? 400);
+}
+addEventListener('storage', e => e.key === 'kioskFont' && applyFont());   // changed on the operator page
+applyFont();
+
 // ---------- Operator page ----------
 function report() { channel.postMessage({ type: 'kiosk', state, lights: !!lightsWriter }); }
 function log(message) { channel.postMessage({ type: 'log', message }); }
 channel.onmessage = ({ data: m }) => {
   if (m.type === 'button') m.down ? buttonDown() : buttonUp();
-  else if (m.type === 'lights') findLights();
+  else if (m.type === 'lights') { findLights(); sendFlag(m.flagLayout, m.flagShift); }
+  else if (m.type === 'lightsPreview') m.code ? sendLights(m.code) : syncLights();   // '' is back to live
   else if (m.type === 'hello') report();
 };
 setInterval(report, 2000);
