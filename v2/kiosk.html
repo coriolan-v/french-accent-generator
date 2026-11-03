@@ -21,7 +21,22 @@
   #flagRing { opacity: 0; transform-origin: 540px 540px; }
   [data-state=working] #flagRing, [data-state=playing] #flagRing { opacity: 1; }
   [data-state=playing] #reveal { transition: stroke-dasharray .4s ease-out; }
-  [data-state=playing] #flagRing, [data-state=idle] #flagRing { animation: spin 8s linear infinite; }
+  [data-state=working] #flagRing, [data-state=playing] #flagRing, [data-state=idle] #flagRing { animation: spin 8s linear infinite; }
+
+  /* While processing, a video fills the circle inside the flag ring (inner edge r = 498 of 1080) and
+     the title and button step aside. */
+  #film { position: fixed; top: 50%; left: 50%; width: 100vmin; height: 100vmin; transform: translate(-50%, -50%);
+          object-fit: cover; clip-path: circle(46.1%); opacity: 0; transition: opacity .6s; pointer-events: none; }
+  [data-state=working] #film { opacity: 1; }
+  svg { position: relative; }
+  #titles, #button { transition: opacity .6s; }
+  [data-state=working] :is(#titles, #button) { opacity: 0; }
+  /* Shown over the video, curved along the bottom inside the ring; the dark outline keeps it readable. */
+  #filmText { fill: #fff; font-size: calc(50px * var(--size)); font-weight: var(--weight); text-anchor: middle;
+              stroke: rgba(0, 0, 0, .75); stroke-width: 8px; stroke-linejoin: round; paint-order: stroke;
+              opacity: 0; transition: opacity .6s; }
+  [data-state=working] #filmText { opacity: 1; animation: glow 2s ease-in-out .6s infinite; }
+  @keyframes glow { 50% { opacity: .65; } }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* Going idle crossfades: whatever was showing fades out (setState leaves it in place) as the mic fades in.
@@ -56,6 +71,7 @@
 </style>
 </head>
 <body data-state="waiting">
+<video id="film" src="/media/Peter_French_Black_Closeup_2K.mp4" preload="auto" loop playsinline></video>
 <!-- Drawn for the 1080 × 1080 round panel: only the circle is visible. -->
 <svg viewBox="0 0 1080 1080">
   <defs>
@@ -63,6 +79,8 @@
     <path id="titleCircle" d="M 160 540 A 380 380 0 1 1 920 540 A 380 380 0 1 1 160 540"/>
     <!-- Inside the button's edge, from lower left over the top to lower right (240°). -->
     <path id="hintArc" d="M 351.2 649 A 218 218 0 1 1 728.8 649"/>
+    <!-- Under the centre from left to right, so the text stands upright along the bottom of the circle. -->
+    <path id="filmArc" d="M 85 540 A 455 455 0 0 0 995 540"/>
     <mask id="ringMask">
       <circle id="reveal" cx="540" cy="540" r="512" pathLength="100" transform="rotate(-90 540 540)"/>
     </mask>
@@ -78,6 +96,8 @@
       <path class="ring flag-red" d="M 96.6 796 A 512 512 0 0 1 540 28"/>
     </g>
   </g>
+
+  <text id="filmText"><textPath href="#filmArc" startOffset="50%">Applying French accent to your voice…</textPath></text>
 
   <g id="titles">
     <text class="title"><textPath href="#titleCircle" startOffset="25%">FRENCHIFY ME</textPath></text>
@@ -109,6 +129,7 @@
 <script src="/common.js"></script>
 <script>
 const TAP_MS = 1000;   // button released sooner than this: hands-free message instead of hold-to-talk
+const MIN_FILM_MS = 5000;  // the processing video plays at least this long, even when the result is ready sooner
 const HOLD_MS = 4000;  // "Voilà !" and the flag (on screen and on the pyramid) stay this long after the result has played
 const HINTS = {
   waiting: 'Warming up, one moment…',
@@ -131,12 +152,22 @@ function setState(s) {
   state = s;
   document.body.dataset.state = s;
   $('hint').textContent = HINTS[s];
+  playFilm(s === 'working');
   if (s !== 'idle') {   // idle fades out the last text and ring instead (see the CSS)
     $('big').textContent = BIG[s] ?? '';
     setRing(s === 'playing' ? 1 : 0);
   }
   syncLights();
   report();
+}
+// The processing video starts from the beginning each time and loops until the result is ready.
+// With sound if the browser allows it in this window, otherwise muted.
+function playFilm(on) {
+  const film = $('film');
+  if (!on) return film.pause();
+  film.currentTime = 0;
+  film.muted = false;
+  film.play().catch(() => { film.muted = true; film.play().catch(() => {}); });
 }
 const after = (ms, fn) => { afterId = setTimeout(fn, ms); };
 const notice = s => { setState(s); after(s === 'error' ? 4000 : 2500, waitForEngine); };   // cancelled or error
@@ -211,6 +242,8 @@ async function recorded(blob) {
     const total = (performance.now() - t0) / 1000;
     learn(total / seconds);
     channel.postMessage({ type: 'run', input, seconds, result: r, total });
+    // A quick result waits until the video has played at least MIN_FILM_MS.
+    await new Promise(done => setTimeout(done, MIN_FILM_MS - (performance.now() - t0)));
     play(b64Blob(r.audio));
   } catch (e) {
     channel.postMessage({ type: 'run', input, seconds, error: e.message });

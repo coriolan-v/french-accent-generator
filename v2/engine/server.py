@@ -63,6 +63,7 @@ def common_js():
 
 
 app.mount('/fonts', StaticFiles(directory=os.path.join(ROOT, 'fonts')), name='fonts')
+app.mount('/media', StaticFiles(directory=os.path.join(ROOT, 'media')), name='media')
 
 
 @app.get('/api/health')
